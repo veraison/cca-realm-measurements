@@ -8,3 +8,7 @@ license = "MIT OR Apache-2.0"
 
 [dependencies]
 rmm = { path = "rmm/" }
+
+[lints.clippy]
+# Suggestions are less readable
+manual_range_contains = "allow"
