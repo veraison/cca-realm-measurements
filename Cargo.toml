@@ -9,7 +9,10 @@ license = "MIT OR Apache-2.0"
 [dependencies]
 anyhow = "1.0.79"
 clap = { version = "4.5.1", features = ["derive"] }
+openssl = "0.10.63"
 rmm = { path = "rmm/" }
+serde = "1.0.197"
+toml = "0.8.10"
 
 [lints.clippy]
 # Suggestions are less readable

@@ -5,13 +5,15 @@ use std::collections::VecDeque;
 
 use anyhow::{anyhow, Result};
 use clap::{Parser, Subcommand};
+use serde::Deserialize;
 
 /// Host capabilities influence the VM configuration. They contain hardware
 /// capabilities, restricted by both the non-secure and the Realm hypervisor.
 /// For example, if HW and KVM support 10 PMU counters but RMM doesn't then
 /// pmu_num_ctrs is 0.
-#[derive(Debug, Parser)]
+#[derive(Debug, Parser, Default, Deserialize)]
 #[command(next_help_heading = "Host capabilities")]
+#[serde(deny_unknown_fields)]
 pub struct RealmParams {
     /// Number of IPA bits
     #[arg(long, value_name = "N")]
@@ -56,6 +58,10 @@ pub struct Args {
     /// Output file for the generated DTB
     #[arg(long, value_name = "file")]
     pub output_dtb: Option<String>,
+
+    /// Do not generate Realm token (only validate parameters and generate DTB)
+    #[arg(long)]
+    pub no_token: bool,
 
     /// Kernel image
     #[arg(short, long, value_name = "file")]
