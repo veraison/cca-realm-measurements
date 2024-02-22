@@ -7,6 +7,8 @@ edition = "2021"
 license = "MIT OR Apache-2.0"
 
 [dependencies]
+anyhow = "1.0.79"
+clap = { version = "4.5.1", features = ["derive"] }
 rmm = { path = "rmm/" }
 
 [lints.clippy]
