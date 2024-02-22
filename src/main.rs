@@ -4,6 +4,7 @@ use clap::Parser;
 
 mod command_line;
 mod fdt;
+mod qemu;
 mod realm;
 mod utils;
 mod vmm;
@@ -14,6 +15,7 @@ fn main() {
     let args = Args::parse();
 
     let params = match args.vmm {
+        VmmType::Qemu(ref a) => qemu::build_params(&args, a),
     };
 
     let mut params = params.unwrap_or_else(|e| {

@@ -7,6 +7,8 @@ use anyhow::{anyhow, Result};
 use clap::{Parser, Subcommand};
 use serde::Deserialize;
 
+use crate::qemu::QemuArgs;
+
 /// Host capabilities influence the VM configuration. They contain hardware
 /// capabilities, restricted by both the non-secure and the Realm hypervisor.
 /// For example, if HW and KVM support 10 PMU counters but RMM doesn't then
@@ -88,7 +90,10 @@ pub struct Args {
 }
 
 #[derive(Subcommand, Debug)]
-pub enum VmmType {}
+pub enum VmmType {
+    /// Use the QEMU VMM
+    Qemu(QemuArgs),
+}
 
 /// VMM arguments
 pub type RawArgs = VecDeque<String>;
