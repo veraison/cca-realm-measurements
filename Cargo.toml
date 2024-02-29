@@ -13,6 +13,7 @@ openssl = "0.10.63"
 rmm = { path = "rmm/" }
 serde = "1.0.197"
 toml = "0.8.10"
+vm-fdt = "0.3.0"
 
 [lints.clippy]
 # Suggestions are less readable

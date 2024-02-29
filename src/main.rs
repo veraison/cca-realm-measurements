@@ -3,6 +3,7 @@ use std::process;
 use clap::Parser;
 
 mod command_line;
+mod fdt;
 mod realm;
 mod utils;
 mod vmm;
