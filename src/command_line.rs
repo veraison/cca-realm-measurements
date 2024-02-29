@@ -7,6 +7,7 @@ use anyhow::{anyhow, Result};
 use clap::{Parser, Subcommand};
 use serde::Deserialize;
 
+use crate::kvmtool::KvmtoolArgs;
 use crate::qemu::QemuArgs;
 
 /// Host capabilities influence the VM configuration. They contain hardware
@@ -90,9 +91,12 @@ pub struct Args {
 }
 
 #[derive(Subcommand, Debug)]
+#[allow(clippy::large_enum_variant)]
 pub enum VmmType {
     /// Use the QEMU VMM
     Qemu(QemuArgs),
+    /// Use the kvmtool VMM
+    Kvmtool(KvmtoolArgs),
 }
 
 /// VMM arguments
