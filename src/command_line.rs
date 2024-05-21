@@ -7,6 +7,7 @@ use anyhow::{anyhow, Result};
 use clap::{Parser, Subcommand};
 use serde::Deserialize;
 
+use crate::cloud_hypervisor::CloudHVArgs;
 use crate::kvmtool::KvmtoolArgs;
 use crate::qemu::QemuArgs;
 
@@ -97,6 +98,8 @@ pub enum VmmType {
     Qemu(QemuArgs),
     /// Use the kvmtool VMM
     Kvmtool(KvmtoolArgs),
+    /// Use the cloud-hypervisor VMM
+    CloudHV(CloudHVArgs),
 }
 
 /// VMM arguments
