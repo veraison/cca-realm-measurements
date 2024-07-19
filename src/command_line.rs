@@ -84,6 +84,14 @@ pub struct Args {
     #[arg(short, long, verbatim_doc_comment, value_name = "file")]
     pub config: Vec<String>,
 
+    /// Input file containing CoMID endorsements in JSON
+    #[arg(long, value_name = "file")]
+    pub endorsements_template: Option<String>,
+
+    /// Output file containing CoMID endorsements in JSON
+    #[arg(long, value_name = "file")]
+    pub endorsements_output: Option<String>,
+
     #[command(flatten)]
     pub host: RealmParams,
 

@@ -1,14 +1,18 @@
 use std::collections::BTreeMap;
 use std::fs;
-use std::io::Read;
+use std::fs::File;
+use std::io::{Read, Write};
 
 use anyhow::{bail, Context, Result};
+use base64::{engine::general_purpose::STANDARD as base64_standard, Engine as _};
 use openssl::sha;
 
 use crate::command_line::{Args, RealmParams};
 use crate::utils::*;
 use crate::vmm::{BlobStorage, GuestAddress, VmmBlob};
 use rmm::{self, RmiHashAlgorithm, RmmRealmMeasurement, RMM_GRANULE};
+
+use crate::realm_comid::RealmEndorsementsComid;
 
 pub struct PersonalizationValue([u8; 64]);
 
@@ -60,6 +64,10 @@ impl PersonalizationValue {
         }
         Ok(())
     }
+
+    pub fn as_base64(&self) -> String {
+        base64_standard.encode(self.0)
+    }
 }
 
 #[derive(Default)]
@@ -73,6 +81,9 @@ pub struct Realm {
     pub verbose: bool,
 
     pub params: RealmParams,
+
+    endorsements_template: Option<String>,
+    endorsements_output: Option<String>,
 }
 
 fn check_ipa_bits(v: u8) -> Result<u8> {
@@ -210,6 +221,14 @@ impl Realm {
         if args.verbose {
             eprintln!("Host config: {:?}", realm.params);
         }
+
+        realm
+            .endorsements_template
+            .clone_from(&args.endorsements_template);
+        realm
+            .endorsements_output
+            .clone_from(&args.endorsements_output);
+
         Ok(realm)
     }
 
@@ -601,20 +620,80 @@ impl Realm {
         Ok([0; 64])
     }
 
+    /// Create a JSON file containing realm endorsements in the CoMID format
+    fn publish_endorsements(
+        &mut self,
+        rim: RmmRealmMeasurement,
+        rems: Vec<RmmRealmMeasurement>,
+    ) -> Result<()> {
+        if self.endorsements_output.is_none() {
+            return Ok(());
+        }
+
+        let mut endorsements: RealmEndorsementsComid =
+            if let Some(filename) = &self.endorsements_template {
+                let content =
+                    fs::read_to_string(filename).with_context(|| filename.to_string())?;
+                serde_json::from_str(&content).with_context(|| filename.to_string())?
+            } else {
+                RealmEndorsementsComid::new()
+            };
+
+        endorsements.init_refval();
+
+        let hash_algo = match self.hash_algo {
+            None => bail!("hash algorithm is not known"),
+            Some(RmiHashAlgorithm::RmiHashSha256) => "sha-256",
+            Some(RmiHashAlgorithm::RmiHashSha512) => "sha-512",
+        };
+
+        fn encode_rm(algo: &str, rm: RmmRealmMeasurement) -> String {
+            algo.to_owned() + ";" + &base64_standard.encode(rm)
+        }
+
+        let m = &mut endorsements.triples.reference_values[0].measurements[0].value;
+        m.raw_value.vtype = "bytes".to_string();
+        m.raw_value.value = self.personalization_value.as_base64();
+        m.integrity_registers.rim.key_type = "text".to_string();
+        m.integrity_registers.rem0.key_type = "text".to_string();
+        m.integrity_registers.rem1.key_type = "text".to_string();
+        m.integrity_registers.rem2.key_type = "text".to_string();
+        m.integrity_registers.rem3.key_type = "text".to_string();
+        m.integrity_registers.rim.value = vec![encode_rm(hash_algo, rim)];
+        m.integrity_registers.rem0.value = vec![encode_rm(hash_algo, rems[0])];
+        m.integrity_registers.rem1.value = vec![encode_rm(hash_algo, rems[1])];
+        m.integrity_registers.rem2.value = vec![encode_rm(hash_algo, rems[2])];
+        m.integrity_registers.rem3.value = vec![encode_rm(hash_algo, rems[3])];
+
+        let json_output = serde_json::to_string_pretty(&endorsements)?;
+        if let Some(filename) = &self.endorsements_output {
+            let mut file =
+                File::create(filename).with_context(|| filename.to_string())?;
+            write!(file, "{}", json_output)?;
+        }
+        Ok(())
+    }
+
     /// Compute Realm Initial Measurement (RIM) and Realm Extended Measurements
     /// (REM) of the VM. Display or export them.
     pub fn compute_token(&mut self) -> Result<()> {
         let rim = self.compute_rim()?;
 
-        self.dump_measurement("RIM", &rim);
+        if self.endorsements_output.is_none() || self.verbose {
+            self.dump_measurement("RIM", &rim);
+        }
 
         let mut rems = vec![];
         for i in 0..4 {
             let rem = self.compute_rem(i)?;
             rems.push(rem);
 
-            self.dump_measurement(&format!("REM{i}"), &rem);
+            if self.endorsements_output.is_none() || self.verbose {
+                self.dump_measurement(&format!("REM{i}"), &rem);
+            }
         }
+
+        self.publish_endorsements(rim, rems)?;
 
         Ok(())
     }

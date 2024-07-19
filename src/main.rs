@@ -8,6 +8,7 @@ mod fdt;
 mod kvmtool;
 mod qemu;
 mod realm;
+mod realm_comid;
 mod utils;
 mod vmm;
 
