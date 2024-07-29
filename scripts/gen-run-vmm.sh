@@ -14,8 +14,10 @@ vmm=qemu
 
 gen_token=false
 
+: ${CFG:=gen-run-vmm.cfg}
+
 # Try to find a config file containing KERNEL and INITRD
-for cfg in gen-run-vmm.cfg /usr/share/realm-token/gen-run-vmm.cfg; do
+for cfg in $CFG /usr/share/realm-token/gen-run-vmm.cfg; do
     if [ -f "$cfg" ]; then
         source "$cfg"
         break;
