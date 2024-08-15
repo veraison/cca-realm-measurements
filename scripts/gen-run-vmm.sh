@@ -10,6 +10,7 @@ use_initrd=true
 use_rme=true
 use_net_tap=false
 verbose=false
+separate_console=false
 vmm=qemu
 
 gen_token=false
@@ -52,7 +53,7 @@ CORIM_OUTPUT=
 
 INPUT_RVSTORE="$RVSTORE_DIR/rv.json"
 
-TEMP=$(getopt -o 'hvT' --long 'help,edk2,disk-boot,disk,gen-token,serial,no-rme,kvmtool,cloudhv,tap,verbose,comid-template:,corim-template:,corim-output:' -n 'gen-run-vmm' -- "$@")
+TEMP=$(getopt -o 'hvT' --long 'help,edk2,disk-boot,disk,gen-token,serial,no-rme,kvmtool,cloudhv,tap,verbose,comid-template:,corim-template:,corim-output:,extcon' -n 'gen-run-vmm' -- "$@")
 if [ $? -ne 0 ]; then
     exit 1
 fi
@@ -99,6 +100,9 @@ while true; do
         gen_token=true
         shift
         ;;
+    '--extcon')
+        separate_console=true
+        ;;
     '-v'|'--verbose')
         verbose=true
         ;;
@@ -112,6 +116,7 @@ while true; do
         echo "  --no-rme        disable RME"
         echo "  --serial        use serial instead of virtconsole"
         echo "  --tap           use tap networking instead of user"
+        echo "  --extcon        use a separate in+out console for the guest"
         echo "  -v --verbose    be more verbose"
         echo
         echo "  --comid-template <file.json>"
@@ -351,10 +356,16 @@ else
     vmm_cmd=qemu-system-aarch64
 fi
 
+if $separate_console; then
+    REDIRECT='>$GUEST_TTY <$GUEST_TTY &'
+else
+    REDIRECT=
+fi
+
 echo $vmm_cmd "${CMD[@]}" \
     $(printf "'%s' " "${APPEND[@]}")  \
     $($use_net_tap && printf '3<>$tapdevice') \
-    '>$GUEST_TTY <$GUEST_TTY &' \
+    $REDIRECT \
     >> "$OUTPUT_SCRIPT"
 
 chmod +x "$OUTPUT_SCRIPT"
