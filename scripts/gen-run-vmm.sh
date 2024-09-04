@@ -304,7 +304,7 @@ $verbose && extra_args+=(-v)
 
 set -x
 $REALM_TOKEN \
-    -c "$CONFIGS_DIR/qemu-max-8.2.conf" -c "$CONFIGS_DIR/rmm-1.0-eac5.conf" \
+    -c "$CONFIGS_DIR/qemu-max-8.2.conf" -c "$CONFIGS_DIR/kvm.conf" \
     --output-dtb "$OUTPUT_DTB" \
     -k "$KERNEL" \
     -i "$INITRD" \
