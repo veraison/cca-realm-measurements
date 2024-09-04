@@ -1,4 +1,4 @@
-// Structures and values defined by the RMM specification.
+// Structures and values defined by the RMM specification v1.0-rel0.
 // At the moment, this library only provides the definitions needed for RIM
 // calculation.
 use core::mem;
@@ -45,7 +45,8 @@ fn serialize_array<S: Serializer, const N: usize>(
 }
 
 /// RmiRealmParams with only the fields that are measured for the RIM. The rest
-/// is set to zero (DEN0137 1.0-eac5 B4.3.9.4 RMI_REALM_CREATE initialization)
+/// is set to zero (DEN0137 1.0-rel0 B4.3.9.4 RMI_REALM_CREATE initialization of
+/// RIM)
 #[derive(Serialize, Default)]
 #[repr(C, packed)]
 pub struct RmiRealmParams {
@@ -95,7 +96,7 @@ impl RmiRealmParams {
 }
 
 /// RmiRecParams with only the fields that are measured for the RIM. The rest is
-/// set to zero (DEN0137 1.0-eac5 B4.3.12.4 RMI_REC_CREATE extension of RIM)
+/// set to zero (DEN0137 1.0-rel0 B4.3.12.4 RMI_REC_CREATE extension of RIM)
 #[derive(Serialize)]
 #[repr(C, packed)]
 pub struct RmiRecParams {

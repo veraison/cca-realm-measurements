@@ -91,14 +91,14 @@ fn check_ipa_bits(v: u8) -> Result<u8> {
 }
 
 fn check_num_bps(v: u8) -> Result<u8> {
-    if v < 2 || v > 16 {
+    if v < 2 || v > 64 {
         bail!("invalid number of breakpoints");
     }
     Ok(v)
 }
 
 fn check_num_wps(v: u8) -> Result<u8> {
-    if v < 2 || v > 16 {
+    if v < 2 || v > 64 {
         bail!("invalid number of watchpoints");
     }
     Ok(v)
@@ -432,11 +432,12 @@ impl Realm {
         if self.params.pmu.is_some() && self.params.pmu.unwrap() {
             flags |= rmm::RMI_REALM_F_PMU;
         }
+        assert!(num_bps > 1 && num_wps > 1);
         let params = rmm::RmiRealmParams::new(
             flags,
             s2sz,
-            num_wps,
-            num_bps,
+            num_wps - 1,
+            num_bps - 1,
             pmu_num_ctrs,
             sve_vl,
             hash_algo,
@@ -723,14 +724,14 @@ mod tests {
         assert_eq!(realm.params.sve_vl, Some(0));
 
         assert!(realm.set_num_bps(1).is_err());
-        assert!(realm.set_num_bps(17).is_err());
+        assert!(realm.set_num_bps(65).is_err());
         assert!(realm.set_num_bps(2).is_ok());
         assert_eq!(realm.params.num_bps, Some(2));
         assert!(realm.set_num_bps(16).is_ok());
         assert_eq!(realm.params.num_bps, Some(16));
 
         assert!(realm.set_num_wps(1).is_err());
-        assert!(realm.set_num_wps(17).is_err());
+        assert!(realm.set_num_wps(65).is_err());
         assert!(realm.set_num_wps(2).is_ok());
         assert_eq!(realm.params.num_wps, Some(2));
         assert!(realm.set_num_wps(16).is_ok());
@@ -769,10 +770,10 @@ mod tests {
         assert_eq!(
             h,
             [
-                63, 55, 124, 97, 241, 144, 74, 195, 46, 80, 11, 250, 71, 85, 253, 174,
-                197, 6, 109, 89, 152, 40, 139, 120, 189, 109, 99, 101, 120, 0, 219, 80,
+                103, 57, 223, 178, 43, 117, 238, 18, 104, 208, 141, 250, 131, 105, 245,
+                1, 188, 11, 6, 98, 67, 85, 63, 6, 159, 86, 13, 31, 161, 23, 41, 115, 0,
                 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                0, 0, 0, 0, 0, 0, 0, 0
+                0, 0, 0, 0, 0, 0, 0
             ]
         );
 
@@ -781,11 +782,11 @@ mod tests {
         assert_eq!(
             h,
             [
-                51, 215, 226, 23, 103, 216, 34, 226, 249, 177, 84, 119, 229, 227, 193,
-                186, 199, 215, 104, 246, 142, 210, 131, 64, 14, 91, 216, 206, 245, 45,
-                35, 174, 74, 221, 176, 87, 32, 128, 23, 70, 74, 19, 135, 224, 20, 141,
-                11, 174, 131, 73, 205, 245, 23, 151, 150, 192, 90, 125, 218, 130, 29,
-                144, 16, 202
+                121, 158, 67, 64, 72, 251, 87, 235, 157, 79, 14, 42, 43, 152, 21, 135,
+                32, 55, 114, 82, 222, 171, 43, 223, 205, 105, 181, 168, 248, 34, 55, 244,
+                52, 189, 107, 177, 199, 91, 241, 96, 162, 212, 147, 130, 247, 51, 179,
+                67, 154, 63, 247, 105, 228, 234, 93, 217, 166, 247, 34, 57, 212, 75, 187,
+                171
             ]
         );
     }
