@@ -1,5 +1,13 @@
 #!/bin/bash
-# Generate reference values, a DTB and a scripts containing the VMM command
+#
+# This script can perform two operations:
+#
+# * Launch a Realm VM using kvmtool, QEMU or cloud-hypervisor. A DTB is
+#   generated into the current directory. This is the default mode.
+#
+# * Generate reference values corresponding to a given VM invocation, that can
+#   be provisioned into a verifier. For this, add --corim-output to the
+#   arguments.
 
 set -eu
 
@@ -26,9 +34,9 @@ for cfg in $CFG /usr/share/realm-token/gen-run-vmm.cfg; do
 done
 
 # Paths for the generator
-: ${KERNEL:?}
-: ${INITRD:?}
-: ${EDK2_DIR:?}
+: ${KERNEL:=}
+: ${INITRD:=}
+: ${EDK2_DIR:=}
 
 : ${OUTPUT_SCRIPT_DIR:=.}
 : ${OUTPUT_DTB_DIR:=.}
@@ -38,9 +46,9 @@ done
 : ${REALM_TOKEN:=realm-token}
 
 # Paths for the generated run script
-: ${RUN_KERNEL:=guest_kernel}
-: ${RUN_INITRD:=guest_initrd}
-: ${RUN_EDK2_DIR:=.}
+: ${RUN_KERNEL:=$KERNEL}
+: ${RUN_INITRD:=$INITRD}
+: ${RUN_EDK2_DIR:=$EDK2_DIR}
 # An ext4 filesystem containing only the userspace
 : ${RUN_ROOTFS:=guest_rootfs}
 # A disk containing an EFI partition with the kernel and bootloader, and
@@ -158,8 +166,13 @@ if ! $use_initrd; then
     KPARAMS+=(root=/dev/vda)
 fi
 
+if $use_net_tap; then
+    tapindex=$(cat /sys/class/net/macvtap0/ifindex)
+    tapaddress=$(cat /sys/class/net/macvtap0/address)
+    exec 3<>/dev/tap$tapindex
+fi
+
 if [ "$vmm" = "kvmtool" ]; then
-    OUTPUT_SCRIPT="$OUTPUT_SCRIPT_DIR/run_kvm.sh"
     OUTPUT_DTB="$OUTPUT_DTB_DIR/kvmtool-gen.dtb"
     EDK2="$EDK2_DIR/Build/ArmVirtKvmtool-AARCH64/DEBUG_GCC5/FV/KVMTOOL_EFI.fd"
 
@@ -192,7 +205,6 @@ if [ "$vmm" = "kvmtool" ]; then
 
     APPEND=(-p "${KPARAMS[*]}")
 elif [ "$vmm" = "cloud-hv" ]; then
-    OUTPUT_SCRIPT="$OUTPUT_SCRIPT_DIR/run_cloudhv.sh"
     OUTPUT_DTB="$OUTPUT_DTB_DIR/cloudhv-gen.dtb"
     EDK2="$EDK2_DIR/Build/ArmVirtCloudHv-AARCH64/DEBUG_GCC5/FV/QEMU_EFI.fd"
 
@@ -225,14 +237,13 @@ elif [ "$vmm" = "cloud-hv" ]; then
     CMD+=(
         --cpus boot=2
         --memory size=512M
-        --net fd=3,mac='$tapaddress'
+        --net fd=3,mac=$tapaddress
         --dtb cloudhv-gen.dtb
         -v
     )
 
     APPEND=(--cmdline "${KPARAMS[*]}")
 else # QEMU
-    OUTPUT_SCRIPT="$OUTPUT_SCRIPT_DIR/run_qemu.sh"
     OUTPUT_DTB="$OUTPUT_DTB_DIR/qemu-gen.dtb"
     EDK2="$EDK2_DIR/Build/ArmVirtQemu-AARCH64/DEBUG_GCC5/FV/QEMU_EFI.fd"
 
@@ -265,9 +276,9 @@ else # QEMU
     fi
 
     if $use_net_tap; then
-        CMD+=(-device virtio-net-pci,netdev=net0,romfile=\'\',mac='$tapaddress' -netdev tap,fd=3,id=net0)
+        CMD+=(-device virtio-net-pci,netdev=net0,romfile='',mac=$tapaddress -netdev tap,fd=3,id=net0)
     else
-        CMD+=(-device virtio-net-pci,netdev=net0,romfile=\'\' -netdev user,id=net0)
+        CMD+=(-device virtio-net-pci,netdev=net0,romfile='' -netdev user,id=net0)
     fi
 
     CMD+=(
@@ -282,7 +293,7 @@ else # QEMU
     APPEND=(-append "${KPARAMS[*]}")
 fi
 
-if [ -n "CORIM_OUTPUT" ]; then
+if $gen_token; then
     # Try the default sample files
     [ -z "$CORIM_TEMPLATE" ] && CORIM_TEMPLATE=samples/corim-cca-realm.json
     [ -z "$COMID_TEMPLATE" ] && COMID_TEMPLATE=samples/comid-cca-realm.json
@@ -302,6 +313,7 @@ declare -a extra_args
 $gen_token || extra_args+=(--no-token)
 $verbose && extra_args+=(-v)
 
+# When running the VM, the following only generates a DTB
 set -x
 $REALM_TOKEN \
     -c "$CONFIGS_DIR/qemu-max-8.2.conf" -c "$CONFIGS_DIR/kvm.conf" \
@@ -314,15 +326,17 @@ $REALM_TOKEN \
     $vmm "${CMD[@]}" "${APPEND[@]}"
 { set +x; } 2>/dev/null
 
-if [ -n "$CORIM_OUTPUT" ]; then
+if $gen_token; then
     cocli comid create --template "$COMID_OUTPUT" -o "$tmp"
     cocli corim create --template "$CORIM_TEMPLATE" --comid "$tmp/comid.cbor" \
         --output "$CORIM_OUTPUT"
+
+    exit
 fi
 
-cat << EOF > "$OUTPUT_SCRIPT"
-#!/bin/bash
-
+#
+# Now run the VM
+#
 if $use_direct_kernel; then
     run_disk="${RUN_ROOTFS}"
 else 
@@ -330,23 +344,14 @@ else
 fi
 
 # Rough platform detection
-if [ -n "\$(dmesg | grep FVP)" ]; then
+if [ -n "$(dmesg | grep FVP)" ]; then
 	GUEST_TTY=/dev/ttyAMA1
     # FVP 9p doesn't support whatever QEMU is trying to do the the rootfs. F_SETLK maybe?
-    cp "\$run_disk" /tmp/guest_disk
+    cp "$run_disk" /tmp/guest_disk
 else
 	GUEST_TTY=/dev/hvc1
-    ln -fs "\$run_disk" /tmp/guest_disk
+    ln -fs "$run_disk" /tmp/guest_disk
 fi
-
-if $use_net_tap; then
-    tapindex=\$(cat /sys/class/net/macvtap0/ifindex)
-    tapaddress=\$(cat /sys/class/net/macvtap0/address)
-    tapdevice="/dev/tap\$tapindex"
-fi
-
-set -x
-EOF
 
 if [ $vmm = kvmtool ]; then
     vmm_cmd="lkvm run"
@@ -357,15 +362,8 @@ else
 fi
 
 if $separate_console; then
-    REDIRECT='>$GUEST_TTY <$GUEST_TTY &'
-else
-    REDIRECT=
+    exec >$GUEST_TTY <$GUEST_TTY
 fi
 
-echo $vmm_cmd "${CMD[@]}" \
-    $(printf "'%s' " "${APPEND[@]}")  \
-    $($use_net_tap && printf '3<>$tapdevice') \
-    $REDIRECT \
-    >> "$OUTPUT_SCRIPT"
-
-chmod +x "$OUTPUT_SCRIPT"
+set -x
+$vmm_cmd "${CMD[@]}" "${APPEND[@]}"
