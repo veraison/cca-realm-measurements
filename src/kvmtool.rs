@@ -141,7 +141,7 @@ pub struct KvmtoolArgs {
     realm_pv: Option<String>,
 
     #[arg(long)]
-    sve_vl: Option<u16>,
+    sve_max_vl: Option<u16>,
 
     #[arg(long)]
     pmu_counters: Option<u8>,
@@ -344,7 +344,7 @@ fn parse_cmdline(
 
     if args.disable_sve {
         realm.restrict_sve_vl(0)?;
-    } else if let Some(v) = args.sve_vl {
+    } else if let Some(v) = args.sve_max_vl {
         realm.restrict_sve_vl(v)?;
     }
 

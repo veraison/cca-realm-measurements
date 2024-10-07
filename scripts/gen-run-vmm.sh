@@ -189,7 +189,7 @@ if [ "$vmm" = "kvmtool" ]; then
     fi
 
     if $use_rme; then
-        CMD+=(--realm --restricted_mem --sve-vl=512)
+        CMD+=(--realm --restricted_mem --sve-max-vl=512)
     fi
 
     CMD+=(
