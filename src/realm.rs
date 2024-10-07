@@ -79,6 +79,7 @@ pub struct Realm {
     pub hash_algo: Option<RmiHashAlgorithm>,
     pub personalization_value: PersonalizationValue,
     pub verbose: bool,
+    pub print_b64: bool,
 
     pub params: RealmParams,
 
@@ -217,6 +218,7 @@ impl Realm {
             realm.set_lpa2(v);
         }
 
+        realm.print_b64 = args.print_b64;
         realm.verbose = args.verbose;
         if args.verbose {
             eprintln!("Host config: {:?}", realm.params);
@@ -391,9 +393,14 @@ impl Realm {
     }
 
     fn dump_measurement(&self, prefix: &str, m: &RmmRealmMeasurement) {
-        // Dump big-endian hex
-        let s = m.map(|b| format!("{b:02x}")).join("");
-        println!("{prefix}: {s}");
+        if self.print_b64 {
+            let s = base64_standard.encode(m);
+            println!("{prefix}: {s}");
+        } else {
+            // Dump big-endian hex
+            let s = m.map(|b| format!("{b:02x}")).join("");
+            println!("{prefix}: {s}");
+        }
     }
 
     fn rim_init(&self) -> Result<RmmRealmMeasurement> {

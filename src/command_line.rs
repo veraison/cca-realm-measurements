@@ -67,6 +67,10 @@ pub struct Args {
     #[arg(long)]
     pub no_token: bool,
 
+    /// Display measurement encoded in base64, instead of raw hex
+    #[arg(long)]
+    pub print_b64: bool,
+
     /// Kernel image
     #[arg(short, long, value_name = "file")]
     pub kernel: Option<String>,
