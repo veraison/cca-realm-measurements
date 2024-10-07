@@ -515,6 +515,8 @@ pub fn build_params(args: &Args, qemu_args: &QemuArgs) -> Result<Realm> {
     // Ensure the memory map fits within the requested parameters
     check_memmap(&mut realm, &mut qemu)?;
 
+    realm.add_ram(QEMU_MEM_BASE, qemu.mem_size)?;
+
     // Now load the blobs. We support these scenarios:
     // (a) direct kernel boot without firmware
     // (b) direct kernel boot with firmware

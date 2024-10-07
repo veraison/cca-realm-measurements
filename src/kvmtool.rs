@@ -546,6 +546,8 @@ pub fn build_params(args: &Args, lkvm_args: &KvmtoolArgs) -> Result<Realm> {
 
     parse_cmdline(lkvm_args, &mut realm, &mut kvmtool)?;
 
+    realm.add_ram(kvmtool.mem_base, kvmtool.mem_size)?;
+
     if lkvm_args.kernel.is_some() {
         let Some(filename) = &args.kernel else {
             bail!("need kernel image");

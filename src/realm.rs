@@ -75,6 +75,7 @@ pub struct Realm {
     // Use a btree so that blobs are sorted
     pub rim_blobs: BTreeMap<GuestAddress, VmmBlob>,
     pub rem_blobs: Vec<VmmBlob>,
+    pub ram_ranges: BTreeMap<GuestAddress, u64>,
     pub rec: Option<rmm::RmiRecParams>,
     pub hash_algo: Option<RmiHashAlgorithm>,
     pub personalization_value: PersonalizationValue,
@@ -344,6 +345,14 @@ impl Realm {
         Ok(())
     }
 
+    /// Add a range of RAM
+    pub fn add_ram(&mut self, base: GuestAddress, size: u64) -> Result<()> {
+        if self.ram_ranges.insert(base, size).is_some() {
+            bail!("duplicate RAM range at {base}");
+        }
+        Ok(())
+    }
+
     /// Add binary file to be measured as part of the Realm Initial Measurement.
     /// The VMM loads it into guest memory before boot.
     ///
@@ -591,24 +600,17 @@ impl Realm {
             self.dump_measurement("RIM", &rim);
         }
 
-        // The order is: first the guest RAM in ascending order, including both
-        // DATA and RIPAS initialization, then the RECs.
+        // The order is: first init RIPAS of the whole guest RAM, then data
+        // granules in ascending order, then the RECs.
+
+        for (addr, size) in &self.ram_ranges {
+            let base = align_down(*addr, RMM_GRANULE);
+            let end = align_up(base + *size - 1, RMM_GRANULE);
+            self.rim_add_ripas(base, end, block_sizes, &mut rim)?;
+        }
+
         for (addr, blob) in &self.rim_blobs {
-            let data_size = self.rim_add_data(*addr, blob, &mut rim)?;
-            assert!(is_aligned(data_size, RMM_GRANULE));
-
-            // Add measurement for IPAs that are allocated but don't contain
-            // data, for example kernel BSS
-            let Some(load_size) = blob.load_size else {
-                continue;
-            };
-            if load_size <= data_size {
-                continue;
-            }
-
-            let base = *addr + data_size;
-            let top = align_up(*addr + load_size, RMM_GRANULE);
-            self.rim_add_ripas(base, top, block_sizes, &mut rim)?;
+            self.rim_add_data(*addr, blob, &mut rim)?;
         }
 
         if let Some(rec) = &self.rec {

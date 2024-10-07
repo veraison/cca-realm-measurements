@@ -52,6 +52,9 @@ the two follows these rules:
 * The VMM MUST only make the first REC runnable. The other RECs are
   enabled with PSCI and are not part of the initial measurement.
 
+* The VMM SHOULD set the IPA state of all guest RAM as RIPAS_RAM before
+  initializing data granules.
+
 * VMMs create different virtual platforms, whose layout directly affects
   the Realm Token. The VMM SHOULD create the VM with one of the following
   platform layouts.
