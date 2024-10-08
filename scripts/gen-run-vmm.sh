@@ -66,6 +66,12 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
+serial_console=ttyAMA0
+earlycon=pl011
+earlycon_addr=0x09000000
+# FIXME: increase this if you ask for more than 255GB of RAM
+ipa_bits=41
+
 eval set -- "$TEMP"
 unset TEMP
 while true; do
@@ -87,10 +93,16 @@ while true; do
         ;;
     '--kvmtool')
         vmm=kvmtool
+        serial_console=ttyS0
+        earlycon=uart,mmio
+        earlycon_addr=0x01000000
+        # FIXME: increase this if you ask for more than 2GB of RAM
+        ipa_bits=33
         ;;
     '--cloudhv')
         vmm=cloud-hv
         use_net_tap=true
+        ipa_bits=48
         ;;
     '--tap')
         use_net_tap=true
@@ -159,7 +171,11 @@ declare -a KPARAMS
 if $use_virtconsole; then
     KPARAMS+=(console=hvc0)
 else
-    KPARAMS+=(earlycon console=ttyAMA0)
+    # earlycon needs to be accessed via physical address, which unfortunately
+    # depends on the IPA size :(
+    earlycon_addr=$(printf "0x%x" $((earlycon_addr | (1 << (ipa_bits - 1)))))
+
+    KPARAMS+=(earlycon=$earlycon,$earlycon_addr console=$serial_console)
 fi
 
 if ! $use_initrd; then
