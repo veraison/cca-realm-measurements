@@ -169,7 +169,9 @@ fi
 if $use_net_tap; then
     tapindex=$(cat /sys/class/net/macvtap0/ifindex)
     tapaddress=$(cat /sys/class/net/macvtap0/address)
-    exec 3<>/dev/tap$tapindex
+    if [ "$vmm" != "kvmtool" ]; then
+        exec 3<>/dev/tap$tapindex
+    fi
 fi
 
 if [ "$vmm" = "kvmtool" ]; then
@@ -180,6 +182,10 @@ if [ "$vmm" = "kvmtool" ]; then
         CMD+=(--console virtio)
     else
         CMD+=(--console serial)
+    fi
+
+    if $use_net_tap; then
+        CMD+=(-n mode=tap,tapif=/dev/tap$tapindex,guest_mac=$tapaddress)
     fi
 
     if $use_rme; then
