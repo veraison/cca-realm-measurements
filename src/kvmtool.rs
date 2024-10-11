@@ -316,7 +316,7 @@ fn parse_device_cmdline(args: &KvmtoolArgs, kvmtool: &mut KvmtoolParams) -> Resu
 /// Parse arguments to lkvm run
 fn parse_cmdline(
     args: &KvmtoolArgs,
-    realm: &mut Realm,
+    realm: &mut RealmConfig,
     kvmtool: &mut KvmtoolParams,
 ) -> Result<()> {
     if let Some(cpus) = args.cpus {
@@ -335,17 +335,17 @@ fn parse_cmdline(
     }
 
     if args.pmu {
-        realm.restrict_pmu(true);
+        realm.params.restrict_pmu(true);
     }
 
     if let Some(v) = args.pmu_counters {
-        realm.restrict_pmu_num_ctrs(v)?;
+        realm.params.restrict_pmu_num_ctrs(v)?;
     }
 
     if args.disable_sve {
-        realm.restrict_sve_vl(0)?;
+        realm.params.restrict_sve_vl(0)?;
     } else if let Some(v) = args.sve_max_vl {
-        realm.restrict_sve_vl(v)?;
+        realm.params.restrict_sve_vl(v)?;
     }
 
     if let Some(v) = &args.realm_pv {
@@ -354,7 +354,7 @@ fn parse_cmdline(
 
     let last_ipa = kvmtool.mem_base + kvmtool.mem_size - 1;
     let ipa_bits = max(last_ipa.ilog2() as u8, 32) + 1;
-    realm.restrict_ipa_bits(ipa_bits)?;
+    realm.params.restrict_ipa_bits(ipa_bits)?;
 
     parse_device_cmdline(args, kvmtool)?;
 
@@ -370,7 +370,7 @@ fn parse_cmdline(
 /// Generate a DTB for the virt machine, and add it as a blob
 fn add_dtb(
     args: &KvmtoolArgs,
-    realm: &mut Realm,
+    realm: &mut RealmConfig,
     kvmtool: &KvmtoolParams,
     output: &Option<String>,
 ) -> Result<()> {
@@ -536,8 +536,8 @@ fn add_dtb(
 
 /// Create the Realm parameters, vCPUs and blobs that contribute to RIM and REM.
 ///
-pub fn build_params(args: &Args, lkvm_args: &KvmtoolArgs) -> Result<Realm> {
-    let mut realm = Realm::from_args(args)?;
+pub fn build_params(args: &Args, lkvm_args: &KvmtoolArgs) -> Result<RealmConfig> {
+    let mut realm = RealmConfig::from_args(args)?;
     let mut kvmtool = KvmtoolParams {
         mem_base: KVMTOOL_MEM_BASE,
         ..Default::default()

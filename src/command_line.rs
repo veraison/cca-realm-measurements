@@ -5,48 +5,11 @@ use std::collections::VecDeque;
 
 use anyhow::{anyhow, Result};
 use clap::{Parser, Subcommand};
-use serde::Deserialize;
 
 use crate::cloud_hypervisor::CloudHVArgs;
 use crate::kvmtool::KvmtoolArgs;
 use crate::qemu::QemuArgs;
-
-/// Host capabilities influence the VM configuration. They contain hardware
-/// capabilities, restricted by both the non-secure and the Realm hypervisor.
-/// For example, if HW and KVM support 10 PMU counters but RMM doesn't then
-/// pmu_num_ctrs is 0.
-#[derive(Debug, Parser, Default, Deserialize)]
-#[command(next_help_heading = "Host capabilities")]
-#[serde(deny_unknown_fields)]
-pub struct RealmParams {
-    /// Number of IPA bits
-    #[arg(long, value_name = "N")]
-    pub ipa_bits: Option<u8>,
-
-    /// Maximum number of breakpoints (2-16)
-    #[arg(long, value_name = "N")]
-    pub num_bps: Option<u8>,
-
-    /// Maximum number of watchpoints (2-16)
-    #[arg(long, value_name = "N")]
-    pub num_wps: Option<u8>,
-
-    /// Maximum SVE vector length (bits, pow of two, 128-2048, 0 disables)
-    #[arg(long, value_name = "N")]
-    pub sve_vl: Option<u16>,
-
-    /// Maximum number of PMU counters (0-31)
-    #[arg(long, value_name = "N")]
-    pub pmu_num_ctrs: Option<u8>,
-
-    /// PMU is supported
-    #[arg(long)]
-    pub pmu: Option<bool>,
-
-    /// LPA2 is supported
-    #[arg(long)]
-    pub lpa2: Option<bool>,
-}
+use crate::realm_params::RealmParams;
 
 // This is the help blurb:
 /// Generate a Realm token corresponding to a given VM configuration and

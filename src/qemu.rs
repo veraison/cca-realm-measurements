@@ -123,7 +123,7 @@ fn parse_smp(raw_args: &mut RawArgs) -> Result<usize> {
 }
 
 // Parse rme-guest object
-fn parse_object(raw_args: &mut RawArgs, realm: &mut Realm) -> Result<()> {
+fn parse_object(raw_args: &mut RawArgs, realm: &mut RealmConfig) -> Result<()> {
     let arg = pop_arg(raw_args, "-object")?;
     let mut items = arg.split(',');
 
@@ -181,7 +181,7 @@ fn parse_machine(raw_args: &mut RawArgs, qemu: &mut QemuParams) -> Result<()> {
     Ok(())
 }
 
-fn parse_cpu(raw_args: &mut RawArgs, realm: &mut Realm) -> Result<()> {
+fn parse_cpu(raw_args: &mut RawArgs, realm: &mut RealmConfig) -> Result<()> {
     let arg = pop_arg(raw_args, "-cpu")?;
 
     // Keep the the default SVE VL.
@@ -196,9 +196,9 @@ fn parse_cpu(raw_args: &mut RawArgs, realm: &mut Realm) -> Result<()> {
         };
 
         match prop {
-            "num-breakpoints" => realm.restrict_num_bps(val.parse()?)?,
-            "num-watchpoints" => realm.restrict_num_wps(val.parse()?)?,
-            "num-pmu-counters" => realm.restrict_pmu_num_ctrs(val.parse()?)?,
+            "num-breakpoints" => realm.params.restrict_num_bps(val.parse()?)?,
+            "num-watchpoints" => realm.params.restrict_num_wps(val.parse()?)?,
+            "num-pmu-counters" => realm.params.restrict_pmu_num_ctrs(val.parse()?)?,
             "sve" => {
                 if val == "off" {
                     sve_vl = Some(0);
@@ -219,7 +219,7 @@ fn parse_cpu(raw_args: &mut RawArgs, realm: &mut Realm) -> Result<()> {
         }
     }
     if let Some(v) = sve_vl {
-        realm.restrict_sve_vl(v)?;
+        realm.params.restrict_sve_vl(v)?;
     }
 
     Ok(())
@@ -241,7 +241,7 @@ fn parse_ignore(raw_args: &mut RawArgs, arg: &str) -> Result<()> {
 ///
 /// This is currently based on QEMU virt 9.1
 ///
-fn add_dtb(args: &Args, realm: &mut Realm, qemu: &QemuParams) -> Result<()> {
+fn add_dtb(args: &Args, realm: &mut RealmConfig, qemu: &QemuParams) -> Result<()> {
     let gic_phandle: u32 = 1;
     let its_phandle: u32 = 2;
     let clock_phandle: u32 = 3;
@@ -433,7 +433,7 @@ fn add_dtb(args: &Args, realm: &mut Realm, qemu: &QemuParams) -> Result<()> {
     Ok(())
 }
 
-fn check_memmap(realm: &mut Realm, qemu: &mut QemuParams) -> Result<()> {
+fn check_memmap(realm: &mut RealmConfig, qemu: &mut QemuParams) -> Result<()> {
     let Some(ipa_bits) = realm.params.ipa_bits else {
         bail!("max IPA size is not known");
     };
@@ -448,19 +448,19 @@ fn check_memmap(realm: &mut Realm, qemu: &mut QemuParams) -> Result<()> {
 
     // The high PCI regions require 40 IPA bits, and we reserve one more for NS
     // memory
-    realm.restrict_ipa_bits(41)?;
+    realm.params.restrict_ipa_bits(41)?;
     Ok(())
 }
 
 /// Create the Realm parameters, vCPUs and blobs that contribute to RIM and REM.
 ///
-pub fn build_params(args: &Args, qemu_args: &QemuArgs) -> Result<Realm> {
+pub fn build_params(args: &Args, qemu_args: &QemuArgs) -> Result<RealmConfig> {
     let mut use_firmware = false;
     let mut use_kernel = false;
     let mut use_initrd = false;
     let raw_args = &mut raw_args_from_vec(&qemu_args.args);
 
-    let mut realm = Realm::from_args(args)?;
+    let mut realm = RealmConfig::from_args(args)?;
     let mut qemu = QemuParams {
         num_cpus: 1,
         mem_size: 128 * MIB,

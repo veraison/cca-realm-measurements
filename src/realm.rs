@@ -8,7 +8,8 @@ use anyhow::{bail, Context, Result};
 use base64::{engine::general_purpose::STANDARD as base64_standard, Engine as _};
 use openssl::sha;
 
-use crate::command_line::{Args, RealmParams};
+use crate::command_line::Args;
+use crate::realm_params::RealmParams;
 use crate::utils::*;
 use crate::vmm::{BlobStorage, GuestAddress, VmmBlob};
 use rmm::{self, RmiHashAlgorithm, RmmRealmMeasurement, RMM_GRANULE};
@@ -71,60 +72,244 @@ impl PersonalizationValue {
     }
 }
 
+#[derive(Debug)]
+pub struct Measurements {
+    pub rim: RmmRealmMeasurement,
+    pub rem: [RmmRealmMeasurement; 4],
+}
+
+impl Default for Measurements {
+    fn default() -> Self {
+        Self {
+            rim: [0; 64],
+            rem: [[0; 64], [0; 64], [0; 64], [0; 64]],
+        }
+    }
+}
+
 #[derive(Default)]
 pub struct Realm {
-    // Use a btree so that blobs are sorted
-    pub rim_blobs: BTreeMap<GuestAddress, VmmBlob>,
-    pub rem_blobs: Vec<VmmBlob>,
-    pub ram_ranges: BTreeMap<GuestAddress, u64>,
-    pub rec: Option<rmm::RmiRecParams>,
     pub hash_algo: Option<RmiHashAlgorithm>,
-    pub personalization_value: PersonalizationValue,
-    pub print_b64: bool,
-
-    pub params: RealmParams,
-
-    endorsements_template: Option<String>,
-    endorsements_output: Option<String>,
+    // The RIPAS calls depend on the mapping block sizes, which depend on
+    // the number of translation table levels.
+    block_sizes: u64,
+    pub measurements: Measurements,
 }
 
-fn check_ipa_bits(v: u8) -> Result<u8> {
-    Ok(v)
-}
-
-fn check_num_bps(v: u8) -> Result<u8> {
-    if v < 2 || v > 64 {
-        bail!("invalid number of breakpoints");
+impl Realm {
+    fn dump_measurement(&self, m: &RmmRealmMeasurement, print_b64: bool) -> String {
+        if print_b64 {
+            base64_standard.encode(m)
+        } else {
+            // Dump big-endian hex
+            buf_to_hex_str(m).to_string()
+        }
     }
-    Ok(v)
-}
 
-fn check_num_wps(v: u8) -> Result<u8> {
-    if v < 2 || v > 64 {
-        bail!("invalid number of watchpoints");
+    fn debug_rim(&self) {
+        log::debug!(
+            "RIM: {}",
+            self.dump_measurement(&self.measurements.rim, false)
+        );
     }
-    Ok(v)
-}
 
-fn check_pmu_ctrs(v: u8) -> Result<u8> {
-    if v > 31 {
-        bail!("invalid number of PMU counters");
+    fn measure_bytes(&self, data: &[u8]) -> Result<RmmRealmMeasurement> {
+        match self.hash_algo {
+            None => bail!("hash algorithm is not known"),
+            Some(RmiHashAlgorithm::RmiHashSha256) => {
+                let h = sha::sha256(data);
+                let mut measurement = [0; rmm::RMM_REALM_MEASUREMENT_SIZE];
+                measurement[..32].copy_from_slice(&h);
+                Ok(measurement)
+            }
+            Some(RmiHashAlgorithm::RmiHashSha512) => Ok(sha::sha512(data)),
+        }
     }
-    Ok(v)
-}
 
-fn check_sve_vl(v: u16) -> Result<u16> {
-    if v != 0 && !sve_vl_is_valid(v) {
-        bail!("invalid vector length");
+    ///
+    /// Initialize the Realm state. Corresponds to RMI_REALM_CREATE
+    ///
+    pub fn rim_init(
+        &mut self,
+        params: &RealmParams,
+        hash_algo: &RmiHashAlgorithm,
+    ) -> Result<()> {
+        let mut flags = 0;
+        let mut sve_vl = 0;
+        let hash_algo = hash_algo.clone();
+
+        log::debug!("Measuring {:#?}", params);
+
+        if self.measurements.rim != [0; 64] {
+            log::warn!("reinitializing RIM");
+        }
+
+        let Some(s2sz) = params.ipa_bits else {
+            bail!("parameter ipa_bits is not known");
+        };
+        let Some(num_wps) = params.num_wps else {
+            bail!("parameter num_wps is not known");
+        };
+        let Some(num_bps) = params.num_bps else {
+            bail!("parameter num_bps is not known");
+        };
+        let Some(pmu_num_ctrs) = params.pmu_num_ctrs else {
+            bail!("parameter pmu_num_ctrs is not known");
+        };
+
+        if let Some(v) = params.sve_vl {
+            if v > 0 {
+                flags |= rmm::RMI_REALM_F_SVE;
+                sve_vl = sve_vl_to_vq(v);
+            }
+        }
+        if params.lpa2.is_some() && params.lpa2.unwrap() {
+            flags |= rmm::RMI_REALM_F_LPA2;
+        }
+        if params.pmu.is_some() && params.pmu.unwrap() {
+            flags |= rmm::RMI_REALM_F_PMU;
+        }
+        assert!(num_bps > 1 && num_wps > 1);
+        let params = rmm::RmiRealmParams::new(
+            flags,
+            s2sz,
+            num_wps - 1,
+            num_bps - 1,
+            pmu_num_ctrs,
+            sve_vl,
+            hash_algo,
+        );
+
+        self.hash_algo = Some(hash_algo);
+
+        // Since we know the IPA size, we can initialize the block size.
+        self.block_sizes = translation_block_sizes(s2sz);
+
+        let bytes = params.as_bytes()?;
+        self.measurements.rim = self.measure_bytes(&bytes)?;
+        self.debug_rim();
+
+        Ok(())
     }
-    Ok(v)
-}
 
-// Update @old in place if @new is lower than @old, or if @old was None
-fn restrict_val<T: Copy + std::cmp::PartialOrd>(old: &mut Option<T>, new: T) {
-    let old_val = old.unwrap_or(new);
-    if new <= old_val {
-        *old = Some(new);
+    ///
+    /// Measure one blob, add it to the RIM. Corresponds to one or more calls to
+    /// RMI_DATA_CREATE: one for each granule in the blob.
+    ///
+    pub fn rim_add_data(&mut self, addr: u64, blob: &VmmBlob) -> Result<u64> {
+        const GRANULE: usize = RMM_GRANULE as usize;
+        let mut data_size;
+        let mut content;
+        match &blob.data {
+            BlobStorage::File(f) => {
+                // TODO: optimize this, because some of those files
+                // could be several GBs. memmap is an option, though we need
+                // to resize it below in order to measure at page granule.
+                let mut f = f;
+                content = vec![];
+                data_size = f
+                    .read_to_end(&mut content)
+                    .with_context(|| blob.filename.as_ref().unwrap().to_string())?;
+            }
+            BlobStorage::Bytes(b) => {
+                data_size = b.len();
+                content = b.to_vec();
+            }
+        };
+
+        // Align to granule size
+        let aligned_addr = align_down(addr, GRANULE as u64);
+        let fill_size = (addr - aligned_addr) as usize;
+        data_size += fill_size;
+        content.resize(data_size, 0);
+        content.rotate_right(fill_size);
+
+        // Fill up to granule size
+        data_size = align_up(data_size as u64, GRANULE as u64) as usize;
+        content.resize(data_size, 0);
+
+        log::debug!(
+            "Measuring data 0x{:x} - 0x{:x}",
+            aligned_addr,
+            aligned_addr + content.len() as u64 - 1
+        );
+
+        // Measure each page
+        for off in (0..content.len()).step_by(GRANULE) {
+            let page: &[u8; GRANULE] = &content[off..off + GRANULE]
+                .try_into()
+                .expect("aligned data");
+
+            let content_hash = self.measure_bytes(page)?;
+
+            let measurement_desc = rmm::RmmMeasurementDescriptorData::new(
+                &self.measurements.rim,
+                aligned_addr + off as u64,
+                rmm::RMM_DATA_F_MEASURE, // flags
+                &content_hash,
+            );
+            let bytes = measurement_desc.as_bytes()?;
+            self.measurements.rim = self.measure_bytes(&bytes)?;
+        }
+
+        self.debug_rim();
+        Ok(data_size as u64)
+    }
+
+    ///
+    /// Measure one RIPAS range, add it to the RIM. This corresponds to multiple
+    /// calls to RMI_RTT_INIT_RIPAS: for one IPA range submitted by the VMM, RMM
+    /// performs a measurement for each RTT entry in the range.
+    ///
+    fn rim_add_ripas(&mut self, base: u64, top: u64) -> Result<()> {
+        if top <= base || !is_aligned(top | base, RMM_GRANULE) {
+            bail!("invalid RIPAS parameters");
+        }
+
+        if self.block_sizes == 0 {
+            // Need to call rim_init() first!
+            bail!("block sizes are not known");
+        }
+
+        log::debug!("Measuring RIPAS 0x{:x} - 0x{:x}", base, top - 1);
+
+        let mut cur = base;
+        while cur < top {
+            // Find the largest block size that fits this range
+            let block_size = find_block_size(cur, top, self.block_sizes);
+            assert!(block_size >= RMM_GRANULE && is_aligned(block_size, RMM_GRANULE));
+            let measurement_desc = rmm::RmmMeasurementDescriptorRipas::new(
+                &self.measurements.rim,
+                cur,
+                cur + block_size,
+            );
+            let bytes = measurement_desc.as_bytes()?;
+            self.measurements.rim = self.measure_bytes(&bytes)?;
+
+            cur += block_size;
+        }
+
+        self.debug_rim();
+        Ok(())
+    }
+
+    ///
+    /// Measure one REC structure, add it to the RIM. This corresponds to a call
+    /// to RMI_REC_CREATE.
+    ///
+    pub fn rim_add_rec(&mut self, rec: &rmm::RmiRecParams) -> Result<()> {
+        let bytes = rec.as_bytes()?;
+        let content_hash = self.measure_bytes(&bytes)?;
+
+        log::debug!("Measuring REC");
+
+        let measurement_desc =
+            rmm::RmmMeasurementDescriptorRec::new(&self.measurements.rim, &content_hash);
+        let bytes = measurement_desc.as_bytes()?;
+        self.measurements.rim = self.measure_bytes(&bytes)?;
+
+        self.debug_rim();
+        Ok(())
     }
 }
 
@@ -182,54 +367,48 @@ fn find_block_size(start: u64, top: u64, sizes: u64) -> u64 {
     block_size
 }
 
-impl Realm {
-    /// Create a Realm object from command-line arguments, checking their
+#[derive(Default)]
+pub struct RealmConfig {
+    // Use a btree so that blobs are sorted
+    pub rim_blobs: BTreeMap<GuestAddress, VmmBlob>,
+    pub rem_blobs: Vec<VmmBlob>,
+    pub ram_ranges: BTreeMap<GuestAddress, u64>,
+    pub rec: Option<rmm::RmiRecParams>,
+    pub hash_algo: Option<RmiHashAlgorithm>,
+    pub personalization_value: PersonalizationValue,
+    pub print_b64: bool,
+
+    pub params: RealmParams,
+
+    endorsements_template: Option<String>,
+    endorsements_output: Option<String>,
+}
+
+impl RealmConfig {
+    /// Create a Realm configuration from command-line arguments, checking their
     /// validity
-    pub fn from_args(args: &Args) -> Result<Realm> {
-        let mut realm = Realm {
-            ..Default::default()
-        };
+    pub fn from_args(args: &Args) -> Result<RealmConfig> {
+        let mut config = RealmConfig::default();
 
         for filename in &args.config {
-            realm
+            config
                 .load_config(filename)
                 .with_context(|| filename.to_string())?;
         }
 
-        // Override config
-        if let Some(v) = args.host.ipa_bits {
-            realm.set_ipa_bits(v)?;
-        }
-        if let Some(v) = args.host.num_bps {
-            realm.set_num_bps(v)?;
-        }
-        if let Some(v) = args.host.num_wps {
-            realm.set_num_wps(v)?;
-        }
-        if let Some(v) = args.host.pmu_num_ctrs {
-            realm.set_pmu_num_ctrs(v)?;
-        }
-        if let Some(v) = args.host.sve_vl {
-            realm.set_sve_vl(v)?;
-        }
-        if let Some(v) = args.host.pmu {
-            realm.set_pmu(v);
-        }
-        if let Some(v) = args.host.lpa2 {
-            realm.set_lpa2(v);
-        }
+        config.print_b64 = args.print_b64;
 
-        realm.print_b64 = args.print_b64;
-        log::debug!("Host config: {:?}", realm.params);
+        config.params.udpate(&args.host)?;
+        log::debug!("Host config: {:?}", config.params);
 
-        realm
+        config
             .endorsements_template
             .clone_from(&args.endorsements_template);
-        realm
+        config
             .endorsements_output
             .clone_from(&args.endorsements_output);
 
-        Ok(realm)
+        Ok(config)
     }
 
     fn load_config(&mut self, filename: &str) -> Result<()> {
@@ -239,98 +418,9 @@ impl Realm {
 
         // Capabilities that are already set by a previous config file can only
         // be lowered.
-
-        if let Some(v) = caps.ipa_bits {
-            self.restrict_ipa_bits(v)?;
-        }
-        if let Some(v) = caps.num_bps {
-            self.restrict_num_bps(v)?;
-        }
-        if let Some(v) = caps.num_wps {
-            self.restrict_num_wps(v)?;
-        }
-        if let Some(v) = caps.pmu_num_ctrs {
-            self.restrict_pmu_num_ctrs(v)?;
-        }
-        if let Some(v) = caps.sve_vl {
-            self.restrict_sve_vl(v)?;
-        }
-        if let Some(v) = caps.pmu {
-            self.restrict_pmu(v);
-        }
-        if let Some(v) = caps.lpa2 {
-            self.restrict_lpa2(v);
-        }
+        self.params.restrict(&caps)?;
 
         Ok(())
-    }
-
-    pub fn set_ipa_bits(&mut self, v: u8) -> Result<()> {
-        self.params.ipa_bits = Some(check_ipa_bits(v)?);
-        Ok(())
-    }
-
-    pub fn restrict_ipa_bits(&mut self, v: u8) -> Result<()> {
-        restrict_val(&mut self.params.ipa_bits, check_ipa_bits(v)?);
-        Ok(())
-    }
-
-    pub fn set_num_bps(&mut self, v: u8) -> Result<()> {
-        self.params.num_bps = Some(check_num_bps(v)?);
-        Ok(())
-    }
-
-    pub fn restrict_num_bps(&mut self, v: u8) -> Result<()> {
-        restrict_val(&mut self.params.num_bps, check_num_bps(v)?);
-        Ok(())
-    }
-
-    pub fn set_num_wps(&mut self, v: u8) -> Result<()> {
-        self.params.num_wps = Some(check_num_wps(v)?);
-        Ok(())
-    }
-
-    pub fn restrict_num_wps(&mut self, v: u8) -> Result<()> {
-        restrict_val(&mut self.params.num_wps, check_num_wps(v)?);
-        Ok(())
-    }
-
-    pub fn set_pmu(&mut self, pmu: bool) {
-        self.params.pmu = Some(pmu);
-    }
-
-    pub fn restrict_pmu(&mut self, pmu: bool) {
-        restrict_val(&mut self.params.pmu, pmu);
-    }
-
-    pub fn set_pmu_num_ctrs(&mut self, num_ctrs: u8) -> Result<()> {
-        self.params.pmu_num_ctrs = Some(check_pmu_ctrs(num_ctrs)?);
-        Ok(())
-    }
-
-    pub fn restrict_pmu_num_ctrs(&mut self, v: u8) -> Result<()> {
-        restrict_val(&mut self.params.pmu_num_ctrs, check_pmu_ctrs(v)?);
-        Ok(())
-    }
-
-    /// Set SVE vector length in bits.
-    pub fn set_sve_vl(&mut self, v: u16) -> Result<()> {
-        self.params.sve_vl = Some(check_sve_vl(v)?);
-        Ok(())
-    }
-
-    /// Set SVE vector length in bits, but not if the current value is lower.
-    pub fn restrict_sve_vl(&mut self, v: u16) -> Result<()> {
-        restrict_val(&mut self.params.sve_vl, check_sve_vl(v)?);
-        Ok(())
-    }
-
-    pub fn set_lpa2(&mut self, lpa2: bool) {
-        self.params.lpa2 = Some(lpa2);
-    }
-
-    pub fn restrict_lpa2(&mut self, lpa2: bool) {
-        restrict_val(&mut self.params.lpa2, lpa2);
     }
 
     pub fn set_measurement_algo(&mut self, s: &str) -> Result<()> {
@@ -385,204 +475,14 @@ impl Realm {
         Ok(())
     }
 
-    fn measure_bytes(&self, data: &[u8]) -> Result<RmmRealmMeasurement> {
-        match self.hash_algo {
-            None => bail!("hash algorithm is not known"),
-            Some(RmiHashAlgorithm::RmiHashSha256) => {
-                let h = sha::sha256(data);
-                let mut measurement = [0; rmm::RMM_REALM_MEASUREMENT_SIZE];
-                measurement[..32].copy_from_slice(&h);
-                Ok(measurement)
-            }
-            Some(RmiHashAlgorithm::RmiHashSha512) => Ok(sha::sha512(data)),
-        }
-    }
+    fn compute_rim(&self) -> Result<Realm> {
+        let mut realm = Realm::default();
 
-    fn dump_measurement(&self, m: &RmmRealmMeasurement) -> String {
-        if self.print_b64 {
-            base64_standard.encode(m)
-        } else {
-            // Dump big-endian hex
-            m.map(|b| format!("{b:02x}")).join("")
-        }
-    }
-
-    fn rim_init(&self) -> Result<RmmRealmMeasurement> {
-        let mut flags = 0;
-        let mut sve_vl = 0;
-
-        log::debug!("Measuring {:#?}", self.params);
-
-        let Some(s2sz) = self.params.ipa_bits else {
-            bail!("parameter ipa_bits is not known");
-        };
-        let Some(num_wps) = self.params.num_wps else {
-            bail!("parameter num_wps is not known");
-        };
-        let Some(num_bps) = self.params.num_bps else {
-            bail!("parameter num_bps is not known");
-        };
-        let Some(pmu_num_ctrs) = self.params.pmu_num_ctrs else {
-            bail!("parameter pmu_num_ctrs is not known");
-        };
         let Some(hash_algo) = self.hash_algo else {
             bail!("hash algorithm is not known");
         };
 
-        if let Some(v) = self.params.sve_vl {
-            if v > 0 {
-                flags |= rmm::RMI_REALM_F_SVE;
-                sve_vl = sve_vl_to_vq(v);
-            }
-        }
-        if self.params.lpa2.is_some() && self.params.lpa2.unwrap() {
-            flags |= rmm::RMI_REALM_F_LPA2;
-        }
-        if self.params.pmu.is_some() && self.params.pmu.unwrap() {
-            flags |= rmm::RMI_REALM_F_PMU;
-        }
-        assert!(num_bps > 1 && num_wps > 1);
-        let params = rmm::RmiRealmParams::new(
-            flags,
-            s2sz,
-            num_wps - 1,
-            num_bps - 1,
-            pmu_num_ctrs,
-            sve_vl,
-            hash_algo,
-        );
-
-        let bytes = params.as_bytes()?;
-        self.measure_bytes(&bytes)
-    }
-
-    // Measure one blob, add it to the RIM
-    fn rim_add_data(
-        &self,
-        addr: u64,
-        blob: &VmmBlob,
-        rim: &mut RmmRealmMeasurement,
-    ) -> Result<u64> {
-        const GRANULE: usize = RMM_GRANULE as usize;
-        let mut data_size;
-        let mut content;
-        match &blob.data {
-            BlobStorage::File(f) => {
-                // TODO: optimize this, because some of those files
-                // could be several GBs. memmap is an option, though we need
-                // to resize it below in order to measure at page granule.
-                let mut f = f;
-                content = vec![];
-                data_size = f
-                    .read_to_end(&mut content)
-                    .with_context(|| blob.filename.as_ref().unwrap().to_string())?;
-            }
-            BlobStorage::Bytes(b) => {
-                data_size = b.len();
-                content = b.to_vec();
-            }
-        };
-
-        // Align to granule size
-        let aligned_addr = align_down(addr, GRANULE as u64);
-        let fill_size = (addr - aligned_addr) as usize;
-        data_size += fill_size;
-        content.resize(data_size, 0);
-        content.rotate_right(fill_size);
-
-        // Fill up to granule size
-        data_size = align_up(data_size as u64, GRANULE as u64) as usize;
-        content.resize(data_size, 0);
-
-        log::debug!(
-            "Measuring data 0x{:x} - 0x{:x}",
-            aligned_addr,
-            aligned_addr + content.len() as u64 - 1
-        );
-
-        // Measure each page
-        for off in (0..content.len()).step_by(GRANULE) {
-            let page: &[u8; GRANULE] = &content[off..off + GRANULE]
-                .try_into()
-                .expect("aligned data");
-
-            let content_hash = self.measure_bytes(page)?;
-
-            let measurement_desc = rmm::RmmMeasurementDescriptorData::new(
-                rim,
-                aligned_addr + off as u64,
-                rmm::RMM_DATA_F_MEASURE, // flags
-                &content_hash,
-            );
-            let bytes = measurement_desc.as_bytes()?;
-            *rim = self.measure_bytes(&bytes)?;
-        }
-
-        log::debug!("RIM: {}", self.dump_measurement(rim));
-
-        Ok(data_size as u64)
-    }
-
-    // Measure one RIPAS range, add it to the RIM. For one IPA range submitted
-    // by the VMM, RMM performs a measurement for each RTT entry in the range.
-    fn rim_add_ripas(
-        &self,
-        base: u64,
-        top: u64,
-        block_sizes: u64,
-        rim: &mut RmmRealmMeasurement,
-    ) -> Result<()> {
-        assert!(top > base);
-        assert!(is_aligned(top | base, RMM_GRANULE));
-
-        log::debug!("Measuring RIPAS 0x{:x} - 0x{:x}", base, top - 1);
-
-        let mut cur = base;
-        while cur < top {
-            // Find the largest block size that fits this range
-            let block_size = find_block_size(cur, top, block_sizes);
-            assert!(block_size >= RMM_GRANULE && is_aligned(block_size, RMM_GRANULE));
-            let measurement_desc =
-                rmm::RmmMeasurementDescriptorRipas::new(rim, cur, cur + block_size);
-            let bytes = measurement_desc.as_bytes()?;
-            *rim = self.measure_bytes(&bytes)?;
-
-            cur += block_size;
-        }
-
-        log::debug!("RIM: {}", self.dump_measurement(rim));
-
-        Ok(())
-    }
-
-    fn rim_add_rec(
-        &self,
-        rec: &rmm::RmiRecParams,
-        rim: &mut RmmRealmMeasurement,
-    ) -> Result<()> {
-        let bytes = rec.as_bytes()?;
-        let content_hash = self.measure_bytes(&bytes)?;
-
-        log::debug!("Measuring REC");
-
-        let measurement_desc = rmm::RmmMeasurementDescriptorRec::new(rim, &content_hash);
-        let bytes = measurement_desc.as_bytes()?;
-        *rim = self.measure_bytes(&bytes)?;
-
-        Ok(())
-    }
-
-    fn compute_rim(&mut self) -> Result<RmmRealmMeasurement> {
-        let Some(ipa_bits) = self.params.ipa_bits else {
-            bail!("IPA size is not known");
-        };
-        // The RIPAS calls depend on the mapping block sizes, which depend on
-        // the number of translation table levels.
-        let block_sizes = translation_block_sizes(ipa_bits);
-
-        let mut rim = self.rim_init()?;
-
-        log::debug!("RIM: {}", self.dump_measurement(&rim));
+        realm.rim_init(&self.params, &hash_algo)?;
 
         // The order is: first init RIPAS of the whole guest RAM, then data
         // granules in ascending order, then the RECs.
@@ -590,40 +490,24 @@ impl Realm {
         for (addr, size) in &self.ram_ranges {
             let base = align_down(*addr, RMM_GRANULE);
             let end = align_up(base + *size - 1, RMM_GRANULE);
-            self.rim_add_ripas(base, end, block_sizes, &mut rim)?;
+            realm.rim_add_ripas(base, end)?;
         }
 
         for (addr, blob) in &self.rim_blobs {
-            self.rim_add_data(*addr, blob, &mut rim)?;
+            realm.rim_add_data(*addr, &blob)?;
         }
 
         if let Some(rec) = &self.rec {
-            self.rim_add_rec(rec, &mut rim)?;
+            realm.rim_add_rec(rec)?;
         } else {
             log::debug!("Missing REC");
         }
 
-        Ok(rim)
-    }
-
-    pub fn compute_rem(&self, n: usize) -> Result<RmmRealmMeasurement> {
-        assert!(n < 4);
-        // TODO: we know what goes there, but in which order and into which REM?
-        // That will likely come with a TPM log telling us in which order to
-        // measure the REM blobs.
-        Ok([0; 64])
+        Ok(realm)
     }
 
     /// Create a JSON file containing realm endorsements in the CoMID format
-    fn publish_endorsements(
-        &mut self,
-        rim: RmmRealmMeasurement,
-        rems: Vec<RmmRealmMeasurement>,
-    ) -> Result<()> {
-        if self.endorsements_output.is_none() {
-            return Ok(());
-        }
-
+    fn publish_endorsements(&self, realm: &Realm) -> Result<()> {
         let mut endorsements: RealmEndorsementsComid =
             if let Some(filename) = &self.endorsements_template {
                 let content =
@@ -653,11 +537,16 @@ impl Realm {
         m.integrity_registers.rem1.key_type = "text".to_string();
         m.integrity_registers.rem2.key_type = "text".to_string();
         m.integrity_registers.rem3.key_type = "text".to_string();
-        m.integrity_registers.rim.value = vec![encode_rm(hash_algo, rim)];
-        m.integrity_registers.rem0.value = vec![encode_rm(hash_algo, rems[0])];
-        m.integrity_registers.rem1.value = vec![encode_rm(hash_algo, rems[1])];
-        m.integrity_registers.rem2.value = vec![encode_rm(hash_algo, rems[2])];
-        m.integrity_registers.rem3.value = vec![encode_rm(hash_algo, rems[3])];
+        m.integrity_registers.rim.value =
+            vec![encode_rm(hash_algo, realm.measurements.rim)];
+        m.integrity_registers.rem0.value =
+            vec![encode_rm(hash_algo, realm.measurements.rem[0])];
+        m.integrity_registers.rem1.value =
+            vec![encode_rm(hash_algo, realm.measurements.rem[1])];
+        m.integrity_registers.rem2.value =
+            vec![encode_rm(hash_algo, realm.measurements.rem[2])];
+        m.integrity_registers.rem3.value =
+            vec![encode_rm(hash_algo, realm.measurements.rem[3])];
 
         let json_output = serde_json::to_string_pretty(&endorsements)?;
         if let Some(filename) = &self.endorsements_output {
@@ -670,28 +559,23 @@ impl Realm {
 
     /// Compute Realm Initial Measurement (RIM) and Realm Extended Measurements
     /// (REM) of the VM. Display or export them.
-    pub fn compute_token(&mut self) -> Result<()> {
-        let rim = self.compute_rim()?;
+    pub fn compute_token(&self) -> Result<()> {
+        let realm = self.compute_rim()?;
 
         if self.endorsements_output.is_none() {
-            println!("RIM: {}", self.dump_measurement(&rim));
-        } else {
-            log::debug!("RIM: {}", self.dump_measurement(&rim));
-        }
-
-        let mut rems = vec![];
-        for i in 0..4 {
-            let rem = self.compute_rem(i)?;
-            rems.push(rem);
-
-            if self.endorsements_output.is_none() {
-                println!("REM{i}: {}", self.dump_measurement(&rem));
-            } else {
-                log::debug!("REM{i}: {}", self.dump_measurement(&rem));
+            println!(
+                "RIM: {}",
+                realm.dump_measurement(&realm.measurements.rim, self.print_b64)
+            );
+            for i in 0..4 {
+                println!(
+                    "REM{i}: {}",
+                    realm.dump_measurement(&realm.measurements.rem[i], self.print_b64)
+                );
             }
+        } else {
+            self.publish_endorsements(&realm)?;
         }
-
-        self.publish_endorsements(rim, rems)?;
 
         Ok(())
     }
@@ -702,70 +586,24 @@ mod tests {
     use super::*;
 
     #[test]
-    // Realm has some setters that check input values. Test them.
-    fn test_args() {
-        let mut realm = Realm {
-            ..Default::default()
-        };
-
-        assert!(realm.set_sve_vl(272).is_err());
-        assert!(realm.set_sve_vl(4096).is_err());
-        assert!(realm.params.sve_vl.is_none());
-        assert!(realm.set_sve_vl(128).is_ok());
-        assert_eq!(realm.params.sve_vl, Some(128));
-        assert_eq!(sve_vl_to_vq(128), 0);
-        assert!(realm.set_sve_vl(2048).is_ok());
-        assert_eq!(realm.params.sve_vl, Some(2048));
-        assert_eq!(sve_vl_to_vq(2048), 15);
-        assert!(realm.set_sve_vl(0).is_ok());
-        assert_eq!(realm.params.sve_vl, Some(0));
-
-        assert!(realm.set_num_bps(1).is_err());
-        assert!(realm.set_num_bps(65).is_err());
-        assert!(realm.set_num_bps(2).is_ok());
-        assert_eq!(realm.params.num_bps, Some(2));
-        assert!(realm.set_num_bps(16).is_ok());
-        assert_eq!(realm.params.num_bps, Some(16));
-
-        assert!(realm.set_num_wps(1).is_err());
-        assert!(realm.set_num_wps(65).is_err());
-        assert!(realm.set_num_wps(2).is_ok());
-        assert_eq!(realm.params.num_wps, Some(2));
-        assert!(realm.set_num_wps(16).is_ok());
-        assert_eq!(realm.params.num_wps, Some(16));
-
-        assert_eq!(realm.params.pmu_num_ctrs, None);
-        assert!(realm.set_pmu_num_ctrs(32).is_err());
-        assert!(realm.set_pmu_num_ctrs(0).is_ok());
-        assert_eq!(realm.params.pmu_num_ctrs, Some(0));
-        assert!(realm.set_pmu_num_ctrs(31).is_ok());
-        assert_eq!(realm.params.pmu_num_ctrs, Some(31));
-
-        assert!(realm.set_ipa_bits(48).is_ok());
-        assert_eq!(realm.params.ipa_bits, Some(48));
-    }
-
-    #[test]
     fn test_rim() {
-        let mut realm = Realm {
-            ..Default::default()
-        };
+        let mut config = RealmConfig::default();
         // Uninitialized realm
-        assert!(realm.compute_rim().is_err());
+        assert!(config.compute_rim().is_err());
 
-        assert!(realm.set_ipa_bits(48).is_ok());
-        assert!(realm.set_num_wps(2).is_ok());
-        assert!(realm.set_num_bps(2).is_ok());
-        assert!(realm.set_sve_vl(0).is_ok());
-        assert!(realm.set_pmu_num_ctrs(0).is_ok());
+        assert!(config.params.set_ipa_bits(48).is_ok());
+        assert!(config.params.set_num_wps(2).is_ok());
+        assert!(config.params.set_num_bps(2).is_ok());
+        assert!(config.params.set_sve_vl(0).is_ok());
+        assert!(config.params.set_pmu_num_ctrs(0).is_ok());
         // Uninitialized hash algo
-        assert!(realm.compute_rim().is_err());
+        assert!(config.compute_rim().is_err());
 
-        realm.hash_algo = Some(RmiHashAlgorithm::RmiHashSha256);
-        let h = realm.compute_rim().unwrap();
+        config.hash_algo = Some(RmiHashAlgorithm::RmiHashSha256);
+        let realm = config.compute_rim().unwrap();
         // Recompute hashes with println!("{h:?}"); and cargo test -- --nocapture
         assert_eq!(
-            h,
+            realm.measurements.rim,
             [
                 103, 57, 223, 178, 43, 117, 238, 18, 104, 208, 141, 250, 131, 105, 245,
                 1, 188, 11, 6, 98, 67, 85, 63, 6, 159, 86, 13, 31, 161, 23, 41, 115, 0,
@@ -774,10 +612,10 @@ mod tests {
             ]
         );
 
-        realm.hash_algo = Some(RmiHashAlgorithm::RmiHashSha512);
-        let h = realm.compute_rim().unwrap();
+        config.hash_algo = Some(RmiHashAlgorithm::RmiHashSha512);
+        let realm = config.compute_rim().unwrap();
         assert_eq!(
-            h,
+            realm.measurements.rim,
             [
                 121, 158, 67, 64, 72, 251, 87, 235, 157, 79, 14, 42, 43, 152, 21, 135,
                 32, 55, 114, 82, 222, 171, 43, 223, 205, 105, 181, 168, 248, 34, 55, 244,

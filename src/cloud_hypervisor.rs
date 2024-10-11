@@ -146,7 +146,7 @@ struct CloudHVParams {
     serial: bool, // instantiate pl011
 }
 
-fn parse_platform(arg: &Option<String>, realm: &mut Realm) -> Result<()> {
+fn parse_platform(arg: &Option<String>, realm: &mut RealmConfig) -> Result<()> {
     let Some(arg) = arg else {
         return Ok(());
     };
@@ -205,7 +205,7 @@ fn parse_memory(arg: &Option<String>, cloudhv: &mut CloudHVParams) -> Result<()>
 fn parse_cmdline(
     args: &CloudHVArgs,
     cloudhv: &mut CloudHVParams,
-    realm: &mut Realm,
+    realm: &mut RealmConfig,
 ) -> Result<()> {
     parse_platform(&args.platform, realm)?;
     parse_cpus(&args.cpus, cloudhv)?;
@@ -221,7 +221,7 @@ fn parse_cmdline(
 
 fn add_dtb(
     args: &CloudHVArgs,
-    realm: &mut Realm,
+    realm: &mut RealmConfig,
     cloudhv: &CloudHVParams,
     output: &Option<String>,
 ) -> Result<()> {
@@ -357,8 +357,8 @@ fn add_dtb(
     Ok(())
 }
 
-pub fn build_params(args: &Args, cloudhv_args: &CloudHVArgs) -> Result<Realm> {
-    let mut realm = Realm::from_args(args)?;
+pub fn build_params(args: &Args, cloudhv_args: &CloudHVArgs) -> Result<RealmConfig> {
+    let mut realm = RealmConfig::from_args(args)?;
     let mut cloudhv = CloudHVParams {
         num_cpus: 1,
         mem_size: 512 * MIB,
@@ -367,8 +367,8 @@ pub fn build_params(args: &Args, cloudhv_args: &CloudHVArgs) -> Result<Realm> {
         serial: true,
     };
 
-    realm.restrict_sve_vl(0)?;
-    realm.restrict_ipa_bits(48)?;
+    realm.params.restrict_sve_vl(0)?;
+    realm.params.restrict_ipa_bits(48)?;
     realm.set_measurement_algo("sha512")?;
 
     parse_cmdline(cloudhv_args, &mut cloudhv, &mut realm)?;
