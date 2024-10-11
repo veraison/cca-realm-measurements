@@ -55,9 +55,9 @@ pub struct RealmParams {
 #[derive(Debug, Parser)]
 #[command(version, long_about, verbatim_doc_comment)]
 pub struct Args {
-    /// Display more information
-    #[arg(short, long)]
-    pub verbose: bool,
+    /// Display more information (use multiple times to increase verbosity)
+    #[arg(short, long, action = clap::ArgAction::Count)]
+    pub verbose: u8,
 
     /// Output file for the generated DTB
     #[arg(long, value_name = "file")]

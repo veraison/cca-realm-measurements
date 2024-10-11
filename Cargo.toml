@@ -16,6 +16,8 @@ toml = "0.8.10"
 vm-fdt = "0.3.0"
 serde_json = { version = "1.0.114" }
 base64 = "0.22.1"
+log = "0.4.22"
+stderrlog = "0.6.0"
 
 [lints.clippy]
 # Suggestions are less readable

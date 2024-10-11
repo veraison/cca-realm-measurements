@@ -1,3 +1,4 @@
+use log;
 use std::collections::BTreeMap;
 use std::fs;
 use std::fs::File;
@@ -79,7 +80,6 @@ pub struct Realm {
     pub rec: Option<rmm::RmiRecParams>,
     pub hash_algo: Option<RmiHashAlgorithm>,
     pub personalization_value: PersonalizationValue,
-    pub verbose: bool,
     pub print_b64: bool,
 
     pub params: RealmParams,
@@ -220,10 +220,7 @@ impl Realm {
         }
 
         realm.print_b64 = args.print_b64;
-        realm.verbose = args.verbose;
-        if args.verbose {
-            eprintln!("Host config: {:?}", realm.params);
-        }
+        log::debug!("Host config: {:?}", realm.params);
 
         realm
             .endorsements_template
@@ -401,14 +398,12 @@ impl Realm {
         }
     }
 
-    fn dump_measurement(&self, prefix: &str, m: &RmmRealmMeasurement) {
+    fn dump_measurement(&self, m: &RmmRealmMeasurement) -> String {
         if self.print_b64 {
-            let s = base64_standard.encode(m);
-            println!("{prefix}: {s}");
+            base64_standard.encode(m)
         } else {
             // Dump big-endian hex
-            let s = m.map(|b| format!("{b:02x}")).join("");
-            println!("{prefix}: {s}");
+            m.map(|b| format!("{b:02x}")).join("")
         }
     }
 
@@ -416,9 +411,7 @@ impl Realm {
         let mut flags = 0;
         let mut sve_vl = 0;
 
-        if self.verbose {
-            eprintln!("Measuring {:#?}", self.params);
-        }
+        log::debug!("Measuring {:#?}", self.params);
 
         let Some(s2sz) = self.params.ipa_bits else {
             bail!("parameter ipa_bits is not known");
@@ -501,10 +494,11 @@ impl Realm {
         data_size = align_up(data_size as u64, GRANULE as u64) as usize;
         content.resize(data_size, 0);
 
-        if self.verbose {
-            let last = aligned_addr + content.len() as u64 - 1;
-            eprintln!("Measuring data 0x{:x} - 0x{:x}", aligned_addr, last);
-        }
+        log::debug!(
+            "Measuring data 0x{:x} - 0x{:x}",
+            aligned_addr,
+            aligned_addr + content.len() as u64 - 1
+        );
 
         // Measure each page
         for off in (0..content.len()).step_by(GRANULE) {
@@ -524,9 +518,7 @@ impl Realm {
             *rim = self.measure_bytes(&bytes)?;
         }
 
-        if self.verbose {
-            self.dump_measurement("RIM", rim);
-        }
+        log::debug!("RIM: {}", self.dump_measurement(rim));
 
         Ok(data_size as u64)
     }
@@ -543,9 +535,7 @@ impl Realm {
         assert!(top > base);
         assert!(is_aligned(top | base, RMM_GRANULE));
 
-        if self.verbose {
-            eprintln!("Measuring RIPAS 0x{:x} - 0x{:x}", base, top - 1);
-        }
+        log::debug!("Measuring RIPAS 0x{:x} - 0x{:x}", base, top - 1);
 
         let mut cur = base;
         while cur < top {
@@ -560,9 +550,7 @@ impl Realm {
             cur += block_size;
         }
 
-        if self.verbose {
-            self.dump_measurement("RIM", rim);
-        }
+        log::debug!("RIM: {}", self.dump_measurement(rim));
 
         Ok(())
     }
@@ -575,9 +563,7 @@ impl Realm {
         let bytes = rec.as_bytes()?;
         let content_hash = self.measure_bytes(&bytes)?;
 
-        if self.verbose {
-            eprintln!("Measuring REC");
-        }
+        log::debug!("Measuring REC");
 
         let measurement_desc = rmm::RmmMeasurementDescriptorRec::new(rim, &content_hash);
         let bytes = measurement_desc.as_bytes()?;
@@ -596,9 +582,7 @@ impl Realm {
 
         let mut rim = self.rim_init()?;
 
-        if self.verbose {
-            self.dump_measurement("RIM", &rim);
-        }
+        log::debug!("RIM: {}", self.dump_measurement(&rim));
 
         // The order is: first init RIPAS of the whole guest RAM, then data
         // granules in ascending order, then the RECs.
@@ -616,7 +600,7 @@ impl Realm {
         if let Some(rec) = &self.rec {
             self.rim_add_rec(rec, &mut rim)?;
         } else {
-            eprintln!("Missing REC");
+            log::debug!("Missing REC");
         }
 
         Ok(rim)
@@ -689,8 +673,10 @@ impl Realm {
     pub fn compute_token(&mut self) -> Result<()> {
         let rim = self.compute_rim()?;
 
-        if self.endorsements_output.is_none() || self.verbose {
-            self.dump_measurement("RIM", &rim);
+        if self.endorsements_output.is_none() {
+            println!("RIM: {}", self.dump_measurement(&rim));
+        } else {
+            log::debug!("RIM: {}", self.dump_measurement(&rim));
         }
 
         let mut rems = vec![];
@@ -698,8 +684,10 @@ impl Realm {
             let rem = self.compute_rem(i)?;
             rems.push(rem);
 
-            if self.endorsements_output.is_none() || self.verbose {
-                self.dump_measurement(&format!("REM{i}"), &rem);
+            if self.endorsements_output.is_none() {
+                println!("REM{i}: {}", self.dump_measurement(&rem));
+            } else {
+                log::debug!("REM{i}: {}", self.dump_measurement(&rem));
             }
         }
 

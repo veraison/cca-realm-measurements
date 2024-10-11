@@ -6,6 +6,7 @@
 use std::cmp::{max, min};
 
 use anyhow::{bail, Context, Result};
+use log;
 
 use crate::command_line::*;
 use crate::fdt::*;
@@ -174,7 +175,7 @@ fn parse_machine(raw_args: &mut RawArgs, qemu: &mut QemuParams) -> Result<()> {
             "acpi" => parse_bool(&mut qemu.has_acpi, val)?,
             "highmem" => bail!("disabling highmem is not supported"),
             "confidential-guest-support" => (),
-            _ => eprintln!("ignored machine parameter {prop}"),
+            _ => log::warn!("ignored machine parameter {prop}"),
         }
     }
     Ok(())
@@ -214,7 +215,7 @@ fn parse_cpu(raw_args: &mut RawArgs, realm: &mut Realm) -> Result<()> {
                     sve_vl = Some(vl)
                 }
             }
-            _ => eprintln!("ignored cpu parameter {prop}"),
+            _ => log::warn!("ignored cpu parameter {prop}"),
         }
     }
     if let Some(v) = sve_vl {
@@ -232,7 +233,7 @@ fn parse_append(raw_args: &mut RawArgs, qemu: &mut QemuParams) -> Result<()> {
 
 fn parse_ignore(raw_args: &mut RawArgs, arg: &str) -> Result<()> {
     let val = pop_arg(raw_args, arg)?;
-    eprintln!("ignored {arg} {val}");
+    log::warn!("ignored {arg} {val}");
     Ok(())
 }
 
@@ -507,7 +508,7 @@ pub fn build_params(args: &Args, qemu_args: &QemuArgs) -> Result<Realm> {
                 use_firmware = true;
             }
             _ => {
-                eprintln!("Parameter {arg} ignored");
+                log::warn!("Parameter {arg} ignored");
             }
         }
     }

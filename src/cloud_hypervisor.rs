@@ -7,6 +7,7 @@ use crate::utils::*;
 use crate::vmm::*;
 
 use anyhow::{bail, Context, Result};
+use log;
 
 const CLOUDHV_GIC_DIST_BASE: u64 = 0x08ff0000;
 const CLOUDHV_GIC_DIST_SIZE: u64 = 0x10000;
@@ -176,7 +177,7 @@ fn parse_cpus(arg: &Option<String>, cloudhv: &mut CloudHVParams) -> Result<()> {
 
         match name {
             "boot" => cloudhv.num_cpus = val.parse().context("--cpus")?,
-            _ => eprintln!("ignored --cpus parameter {}", name),
+            _ => log::warn!("ignored --cpus parameter {}", name),
         }
     }
     Ok(())
@@ -194,7 +195,7 @@ fn parse_memory(arg: &Option<String>, cloudhv: &mut CloudHVParams) -> Result<()>
 
         match name {
             "size" => cloudhv.mem_size = parse_memory_size(val).context("--memory")?,
-            _ => eprintln!("ignored --memory parameter {}", name),
+            _ => log::warn!("ignored --memory parameter {}", name),
         }
     }
     Ok(())
