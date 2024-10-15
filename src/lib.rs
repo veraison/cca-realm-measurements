@@ -29,6 +29,36 @@
 //!     ...
 //! ```
 //!
+//! # Event log parsing
+//!
+//! Parse an event log describing the different steps taken by the VMM and
+//! boot loaders, and reconstruct the RIM and REM. This can be used by a
+//! verifier to construct the reference values dynamically.
+//!
+//! Example
+//! ```rust,no_run
+//! use std::fs;
+//! use realm_token::realm::Realm;
+//! use realm_token::event_log::{EventLogParser, MeasurementImages};
+//!
+//! // Collect the digests of images loaded into the Realm with:
+//! // # sha256sum /path/to/image/dir/* > /tmp/images.digests
+//! let images = MeasurementImages::from_checksums("/tmp/images.digests")
+//!     .unwrap();
+//!
+//! // Obtain the raw event log from a running Realm:
+//! let raw_tcg_log = fs::read("/sys/kernel/tsm/ccel").unwrap();
+//!
+//! let mut realm = Realm::new();
+//!
+//! EventLogParser::new()
+//!     .images(images)
+//!     .parse_tcg_log(&raw_tcg_log, &mut realm);
+//!
+//! // If everything went well, display the RIM and REMs:
+//! println!("Measurements: {:?}", realm.measurements);
+//! ```
+//!
 //! # About RIM and REM
 //!
 //! A Realm is a confidential computing environment within the Arm Confidential
@@ -43,6 +73,8 @@
 //! [RMM]: https://developer.arm.com/documentation/den0137/1-0rel0/
 
 #![warn(missing_docs)]
+/// Parse an event log and construct the reference values
+pub mod event_log;
 /// Simulate realm initialization to calculate the reference values
 pub mod realm;
 /// VMM tools
