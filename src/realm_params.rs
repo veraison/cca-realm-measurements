@@ -79,6 +79,10 @@ pub struct RealmParams {
     /// LPA2 is supported
     #[arg(long)]
     pub lpa2: Option<bool>,
+
+    /// Hash algorithm
+    #[arg(long)]
+    pub hash_algo: Option<rmm::RmiHashAlgorithm>,
 }
 
 impl RealmParams {

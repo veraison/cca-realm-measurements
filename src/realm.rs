@@ -159,14 +159,9 @@ impl Realm {
     ///
     /// Initialize the Realm state. Corresponds to RMI_REALM_CREATE
     ///
-    pub fn rim_init(
-        &mut self,
-        params: &RealmParams,
-        hash_algo: &RmiHashAlgorithm,
-    ) -> Result<()> {
+    pub fn rim_init(&mut self, params: &RealmParams) -> Result<()> {
         let mut flags = 0;
         let mut sve_vl = 0;
-        let hash_algo = hash_algo.clone();
 
         log::debug!("Measuring {:#?}", params);
 
@@ -174,6 +169,9 @@ impl Realm {
             log::warn!("reinitializing RIM");
         }
 
+        let Some(hash_algo) = params.hash_algo else {
+            bail!("hash algorithm is now known");
+        };
         let Some(s2sz) = params.ipa_bits else {
             bail!("parameter ipa_bits is not known");
         };
@@ -388,7 +386,6 @@ pub struct RealmConfig {
     pub rem_blobs: Vec<VmmBlob>,
     pub ram_ranges: BTreeMap<GuestAddress, u64>,
     pub rec: Option<rmm::RmiRecParams>,
-    pub hash_algo: Option<RmiHashAlgorithm>,
     pub personalization_value: PersonalizationValue,
     pub print_b64: bool,
 
@@ -438,11 +435,7 @@ impl RealmConfig {
     }
 
     pub fn set_measurement_algo(&mut self, s: &str) -> Result<()> {
-        self.hash_algo = Some(match s {
-            "sha256" => RmiHashAlgorithm::RmiHashSha256,
-            "sha512" => RmiHashAlgorithm::RmiHashSha512,
-            _ => bail!("unsupported hash algorithm '{s}'"),
-        });
+        self.params.hash_algo = Some(s.parse::<RmiHashAlgorithm>()?);
         Ok(())
     }
 
@@ -492,11 +485,7 @@ impl RealmConfig {
     fn compute_rim(&mut self) -> Result<Realm> {
         let mut realm = Realm::default();
 
-        let Some(hash_algo) = self.hash_algo else {
-            bail!("hash algorithm is not known");
-        };
-
-        realm.rim_init(&self.params, &hash_algo)?;
+        realm.rim_init(&self.params)?;
 
         // The order is: first init RIPAS of the whole guest RAM, then data
         // granules in ascending order, then the RECs.
@@ -533,7 +522,7 @@ impl RealmConfig {
 
         endorsements.init_refval();
 
-        let hash_algo = match self.hash_algo {
+        let hash_algo = match self.params.hash_algo {
             None => bail!("hash algorithm is not known"),
             Some(RmiHashAlgorithm::RmiHashSha256) => "sha-256",
             Some(RmiHashAlgorithm::RmiHashSha512) => "sha-512",
@@ -613,7 +602,7 @@ mod tests {
         // Uninitialized hash algo
         assert!(config.compute_rim().is_err());
 
-        config.hash_algo = Some(RmiHashAlgorithm::RmiHashSha256);
+        config.params.hash_algo = Some(RmiHashAlgorithm::RmiHashSha256);
         let realm = config.compute_rim().unwrap();
         // Recompute hashes with println!("{h:?}"); and cargo test -- --nocapture
         assert_eq!(
@@ -626,7 +615,7 @@ mod tests {
             ]
         );
 
-        config.hash_algo = Some(RmiHashAlgorithm::RmiHashSha512);
+        config.params.hash_algo = Some(RmiHashAlgorithm::RmiHashSha512);
         let realm = config.compute_rim().unwrap();
         assert_eq!(
             realm.measurements.rim,
