@@ -2,9 +2,10 @@
 // At the moment, this library only provides the definitions needed for RIM
 // calculation.
 use core::mem;
+use std::str::FromStr;
 
 use serde::ser::SerializeTuple;
-use serde::{Serialize, Serializer};
+use serde::{Deserialize, Serialize, Serializer};
 
 pub const RMM_REALM_MEASUREMENT_SIZE: usize = 64;
 pub type RmmRealmMeasurement = [u8; RMM_REALM_MEASUREMENT_SIZE];
@@ -25,10 +26,44 @@ pub const RMM_DATA_F_MEASURE: u64 = 1 << 0;
 
 pub const RMM_GRANULE: u64 = 0x1000;
 
-#[derive(Copy, Clone)]
+#[derive(Debug, thiserror::Error)]
+pub enum RmmError {
+    #[error("encoding error")]
+    EncodeError(#[from] bincode::Error),
+
+    #[error("unknown hash algorithm `{0}`")]
+    UnknownHashAlgorithm(String),
+}
+type Result<T> = core::result::Result<T, RmmError>;
+
+#[derive(Copy, Clone, Debug, Deserialize, PartialEq, Default)]
 pub enum RmiHashAlgorithm {
+    #[default]
     RmiHashSha256 = 0,
     RmiHashSha512 = 1,
+}
+
+impl TryFrom<u8> for RmiHashAlgorithm {
+    type Error = RmmError;
+    fn try_from(algo: u8) -> Result<Self> {
+        match algo {
+            0 => Ok(RmiHashAlgorithm::RmiHashSha256),
+            1 => Ok(RmiHashAlgorithm::RmiHashSha512),
+            _ => Err(RmmError::UnknownHashAlgorithm("{algo}".to_string())),
+        }
+    }
+}
+
+impl FromStr for RmiHashAlgorithm {
+    type Err = RmmError;
+
+    fn from_str(s: &str) -> Result<Self> {
+        match s {
+            "sha256" => Ok(RmiHashAlgorithm::RmiHashSha256),
+            "sha512" => Ok(RmiHashAlgorithm::RmiHashSha512),
+            _ => Err(RmmError::UnknownHashAlgorithm(String::from(s))),
+        }
+    }
 }
 
 // serde doesn't support serializing large arrays at the moment, so we need to
@@ -36,7 +71,7 @@ pub enum RmiHashAlgorithm {
 fn serialize_array<S: Serializer, const N: usize>(
     t: &[u8; N],
     serializer: S,
-) -> Result<S::Ok, S::Error> {
+) -> core::result::Result<S::Ok, S::Error> {
     let mut ser_tuple = serializer.serialize_tuple(N)?;
     for e in t {
         ser_tuple.serialize_element(e)?;
@@ -87,7 +122,7 @@ impl RmiRealmParams {
         }
     }
     /// Convert the packed struct to bytes
-    pub fn as_bytes(&self) -> bincode::Result<Vec<u8>> {
+    pub fn as_bytes(&self) -> Result<Vec<u8>> {
         let mut bytes = bincode::serialize(self)?;
         assert!(bytes.len() == mem::size_of::<RmiRealmParams>());
         bytes.resize(RMI_REALM_PARAMS_SIZE, 0);
@@ -123,7 +158,7 @@ impl RmiRecParams {
     }
 
     /// Convert the packed struct to bytes
-    pub fn as_bytes(&self) -> bincode::Result<Vec<u8>> {
+    pub fn as_bytes(&self) -> Result<Vec<u8>> {
         let mut bytes = bincode::serialize(self)?;
         assert!(bytes.len() == mem::size_of::<RmiRecParams>());
         bytes.resize(RMI_REC_PARAMS_SIZE, 0);
@@ -164,7 +199,7 @@ impl RmmMeasurementDescriptorData {
             content: *content,
         }
     }
-    pub fn as_bytes(&self) -> bincode::Result<Vec<u8>> {
+    pub fn as_bytes(&self) -> Result<Vec<u8>> {
         assert!(self.desc_type == 0);
         let mut bytes = bincode::serialize(self)?;
         assert!(bytes.len() == mem::size_of::<RmmMeasurementDescriptorData>());
@@ -199,7 +234,7 @@ impl RmmMeasurementDescriptorRec {
             content: *content,
         }
     }
-    pub fn as_bytes(&self) -> bincode::Result<Vec<u8>> {
+    pub fn as_bytes(&self) -> Result<Vec<u8>> {
         assert!(self.desc_type == 1);
         let mut bytes = bincode::serialize(self)?;
         assert!(bytes.len() == mem::size_of::<RmmMeasurementDescriptorRec>());
@@ -236,7 +271,7 @@ impl RmmMeasurementDescriptorRipas {
             top,
         }
     }
-    pub fn as_bytes(&self) -> bincode::Result<Vec<u8>> {
+    pub fn as_bytes(&self) -> Result<Vec<u8>> {
         assert!(self.desc_type == 2);
         let mut bytes = bincode::serialize(self)?;
         assert!(bytes.len() == mem::size_of::<RmmMeasurementDescriptorRipas>());
@@ -247,6 +282,8 @@ impl RmmMeasurementDescriptorRipas {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
     #[test]
     fn test_serialize() {
         let a = 0x12345678u32.to_le();
@@ -255,5 +292,29 @@ mod tests {
         // By default, bincode encodes in litte-endian. Make sure of it, since
         // we rely on that for RMM structs
         assert!(bytes[0] == 0x78);
+    }
+
+    #[test]
+    fn test_hash_algo() {
+        assert_eq!(
+            RmiHashAlgorithm::try_from(0).unwrap(),
+            RmiHashAlgorithm::RmiHashSha256
+        );
+        assert_eq!(
+            RmiHashAlgorithm::try_from(1).unwrap(),
+            RmiHashAlgorithm::RmiHashSha512
+        );
+        assert!(RmiHashAlgorithm::try_from(2).is_err());
+        let h: RmiHashAlgorithm = "sha256".parse().unwrap();
+        assert_eq!(h, RmiHashAlgorithm::RmiHashSha256);
+        assert_eq!(
+            "sha256".parse::<RmiHashAlgorithm>().unwrap(),
+            RmiHashAlgorithm::RmiHashSha256
+        );
+        assert_eq!(
+            "sha512".parse::<RmiHashAlgorithm>().unwrap(),
+            RmiHashAlgorithm::RmiHashSha512
+        );
+        assert!("hello".parse::<RmiHashAlgorithm>().is_err());
     }
 }
