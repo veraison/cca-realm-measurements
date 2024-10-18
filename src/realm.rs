@@ -1,20 +1,43 @@
-use log;
 use std::collections::BTreeMap;
 use std::fs;
 use std::fs::File;
 use std::io::Write;
 
-use anyhow::{bail, Context, Result};
 use base64::{engine::general_purpose::STANDARD as base64_standard, Engine as _};
 use openssl::sha;
 
 use crate::command_line::Args;
 use crate::realm_params::RealmParams;
 use crate::utils::*;
-use crate::vmm::{GuestAddress, VmmBlob};
-use rmm::{self, RmiHashAlgorithm, RmmRealmMeasurement, RMM_GRANULE};
+use crate::vmm::{GuestAddress, VmmBlob, VmmError};
+use rmm::{self, RmiHashAlgorithm, RmmError, RmmRealmMeasurement, RMM_GRANULE};
 
 use crate::realm_comid::RealmEndorsementsComid;
+
+#[derive(Debug, thiserror::Error)]
+pub enum RealmError {
+    #[error("invalid Realm Personalization Value")]
+    InvalidRPV,
+
+    #[error("{0} is not known")]
+    Uninitialized(String),
+
+    #[error("RMM")]
+    Rmm(#[from] RmmError),
+
+    #[error("VMM")]
+    Vmm(#[from] VmmError),
+
+    #[error("invalid parameter {0}")]
+    Parameter(String),
+
+    #[error("file {filename} error: {e}")]
+    File { e: std::io::Error, filename: String },
+
+    #[error("invalid VM configuration: {0}")]
+    Config(String),
+}
+type Result<T> = core::result::Result<T, RealmError>;
 
 pub struct PersonalizationValue([u8; 64]);
 
@@ -29,7 +52,7 @@ impl PersonalizationValue {
     /// zero-padded on the right.
     pub fn parse(&mut self, rpv_str: &str) -> Result<()> {
         if rpv_str.len() > 2 * 64 {
-            bail!("invalid RPV len");
+            return Err(RealmError::InvalidRPV);
         }
 
         let rpv_chars: Vec<char> = rpv_str.chars().collect();
@@ -40,10 +63,11 @@ impl PersonalizationValue {
                     // u8::from_str_radix() accepts '+', we don't.
                     for &c in s {
                         if c == '+' {
-                            bail!("invalid RPV");
+                            return Err(RealmError::InvalidRPV);
                         }
                     }
-                    u8::from_str_radix(&String::from_iter(s), 16)?
+                    u8::from_str_radix(&String::from_iter(s), 16)
+                        .map_err(|_| RealmError::InvalidRPV)?
                 }
                 None => 0,
             }
@@ -54,7 +78,7 @@ impl PersonalizationValue {
     /// Import raw bytes
     pub fn copy(&mut self, rpv_str: &str) -> Result<()> {
         if rpv_str.len() > self.0.len() {
-            bail!("invalid RPV len");
+            return Err(RealmError::InvalidRPV);
         }
 
         let mut rpv_chars = rpv_str.chars();
@@ -145,7 +169,7 @@ impl Realm {
     /// Compute the hash of the provided buffer, using the Realm hash algorithm
     fn measure_bytes(&self, data: &[u8]) -> Result<RmmRealmMeasurement> {
         match self.hash_algo {
-            None => bail!("hash algorithm is not known"),
+            None => Err(RealmError::Uninitialized("hash algorithm".to_string())),
             Some(RmiHashAlgorithm::RmiHashSha256) => {
                 let h = sha::sha256(data);
                 let mut measurement = [0; rmm::RMM_REALM_MEASUREMENT_SIZE];
@@ -170,19 +194,19 @@ impl Realm {
         }
 
         let Some(hash_algo) = params.hash_algo else {
-            bail!("hash algorithm is now known");
+            return Err(RealmError::Uninitialized("hash algorithm".to_string()));
         };
         let Some(s2sz) = params.ipa_bits else {
-            bail!("parameter ipa_bits is not known");
+            return Err(RealmError::Uninitialized("ipa_bits".to_string()));
         };
         let Some(num_wps) = params.num_wps else {
-            bail!("parameter num_wps is not known");
+            return Err(RealmError::Uninitialized("num_wps".to_string()));
         };
         let Some(num_bps) = params.num_bps else {
-            bail!("parameter num_bps is not known");
+            return Err(RealmError::Uninitialized("num_bps".to_string()));
         };
         let Some(pmu_num_ctrs) = params.pmu_num_ctrs else {
-            bail!("parameter pmu_num_ctrs is not known");
+            return Err(RealmError::Uninitialized("pmu_num_ctrs".to_string()));
         };
 
         if let Some(v) = params.sve_vl {
@@ -275,12 +299,12 @@ impl Realm {
     ///
     fn rim_add_ripas(&mut self, base: u64, top: u64) -> Result<()> {
         if top <= base || !is_aligned(top | base, RMM_GRANULE) {
-            bail!("invalid RIPAS parameters");
+            return Err(RealmError::Parameter(format!("RIPAS({base:x}, {top:x})")));
         }
 
         if self.block_sizes == 0 {
             // Need to call rim_init() first!
-            bail!("block sizes are not known");
+            return Err(RealmError::Uninitialized("block sizes".to_string()));
         }
 
         log::debug!("Measuring RIPAS 0x{:x} - 0x{:x}", base, top - 1);
@@ -402,9 +426,7 @@ impl RealmConfig {
         let mut config = RealmConfig::default();
 
         for filename in &args.config {
-            config
-                .load_config(filename)
-                .with_context(|| filename.to_string())?;
+            config.load_config(filename)?;
         }
 
         config.print_b64 = args.print_b64;
@@ -423,9 +445,12 @@ impl RealmConfig {
     }
 
     fn load_config(&mut self, filename: &str) -> Result<()> {
-        let content =
-            fs::read_to_string(filename).with_context(|| filename.to_string())?;
-        let caps: RealmParams = toml::from_str(&content)?;
+        let content = fs::read_to_string(filename).map_err(|e| RealmError::File {
+            filename: filename.to_string(),
+            e,
+        })?;
+        let caps: RealmParams = toml::from_str(&content)
+            .map_err(|e| RealmError::Config(format!("cannot parse {filename}: {e}")))?;
 
         // Capabilities that are already set by a previous config file can only
         // be lowered.
@@ -442,7 +467,7 @@ impl RealmConfig {
     /// Add a range of RAM
     pub fn add_ram(&mut self, base: GuestAddress, size: u64) -> Result<()> {
         if self.ram_ranges.insert(base, size).is_some() {
-            bail!("duplicate RAM range at {base}");
+            return Err(RealmError::Config(format!("duplicate RAM range at {base}")));
         }
         Ok(())
     }
@@ -453,7 +478,7 @@ impl RealmConfig {
     pub fn add_rim_blob(&mut self, blob: VmmBlob) -> Result<()> {
         let address = blob.guest_start;
         if self.rim_blobs.insert(address, blob).is_some() {
-            bail!("duplicate blob at {address}");
+            return Err(RealmError::Config(format!("duplicate blob at {address}")));
         }
         Ok(())
     }
@@ -471,7 +496,7 @@ impl RealmConfig {
     /// not runnable and thus not measured.
     pub fn add_rec(&mut self, pc: u64, gprs: [u64; 8]) -> Result<()> {
         if self.rec.is_some() {
-            bail!("only one REC is supported");
+            return Err(RealmError::Config("only one REC is supported".to_string()));
         }
 
         self.rec = Some(rmm::RmiRecParams::new(
@@ -511,19 +536,24 @@ impl RealmConfig {
 
     /// Create a JSON file containing realm endorsements in the CoMID format
     fn publish_endorsements(&self, realm: &Realm) -> Result<()> {
-        let mut endorsements: RealmEndorsementsComid =
-            if let Some(filename) = &self.endorsements_template {
-                let content =
-                    fs::read_to_string(filename).with_context(|| filename.to_string())?;
-                serde_json::from_str(&content).with_context(|| filename.to_string())?
-            } else {
-                RealmEndorsementsComid::new()
-            };
+        let mut endorsements: RealmEndorsementsComid = if let Some(filename) =
+            &self.endorsements_template
+        {
+            let content = fs::read_to_string(filename).map_err(|e| RealmError::File {
+                filename: filename.to_string(),
+                e,
+            })?;
+            serde_json::from_str(&content).map_err(|e| {
+                RealmError::Config(format!("cannot parse {filename}: {e}"))
+            })?
+        } else {
+            RealmEndorsementsComid::new()
+        };
 
         endorsements.init_refval();
 
         let hash_algo = match self.params.hash_algo {
-            None => bail!("hash algorithm is not known"),
+            None => return Err(RealmError::Uninitialized("hash algorithm".to_string())),
             Some(RmiHashAlgorithm::RmiHashSha256) => "sha-256",
             Some(RmiHashAlgorithm::RmiHashSha512) => "sha-512",
         };
@@ -551,11 +581,18 @@ impl RealmConfig {
         m.integrity_registers.rem3.value =
             vec![encode_rm(hash_algo, realm.measurements.rem[3])];
 
-        let json_output = serde_json::to_string_pretty(&endorsements)?;
+        let json_output = serde_json::to_string_pretty(&endorsements).map_err(|e| {
+            RealmError::Config(format!("cannot encode endorsements: {e}"))
+        })?;
         if let Some(filename) = &self.endorsements_output {
-            let mut file =
-                File::create(filename).with_context(|| filename.to_string())?;
-            write!(file, "{}", json_output)?;
+            let mut file = File::create(filename).map_err(|e| RealmError::File {
+                filename: filename.to_string(),
+                e,
+            })?;
+            write!(file, "{}", json_output).map_err(|e| RealmError::File {
+                filename: filename.to_string(),
+                e,
+            })?;
         }
         Ok(())
     }

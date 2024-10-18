@@ -1,8 +1,10 @@
-use anyhow::{bail, Result};
 use clap::Parser;
 use serde::Deserialize;
 
+use crate::realm::RealmError;
 use crate::utils::*;
+
+type Result<T> = core::result::Result<T, RealmError>;
 
 fn check_ipa_bits(v: u8) -> Result<u8> {
     Ok(v)
@@ -10,28 +12,28 @@ fn check_ipa_bits(v: u8) -> Result<u8> {
 
 fn check_num_bps(v: u8) -> Result<u8> {
     if v < 2 || v > 64 {
-        bail!("invalid number of breakpoints");
+        return Err(RealmError::Parameter(format!("breakpoints '{v}'")));
     }
     Ok(v)
 }
 
 fn check_num_wps(v: u8) -> Result<u8> {
     if v < 2 || v > 64 {
-        bail!("invalid number of watchpoints");
+        return Err(RealmError::Parameter(format!("watchpoints '{v}'")));
     }
     Ok(v)
 }
 
 fn check_pmu_ctrs(v: u8) -> Result<u8> {
     if v > 31 {
-        bail!("invalid number of PMU counters");
+        return Err(RealmError::Parameter(format!("PMU counters '{v}'")));
     }
     Ok(v)
 }
 
 fn check_sve_vl(v: u16) -> Result<u16> {
     if v != 0 && !sve_vl_is_valid(v) {
-        bail!("invalid vector length");
+        return Err(RealmError::Parameter(format!("SVE vector length '{v}'")));
     }
     Ok(v)
 }

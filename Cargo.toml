@@ -18,6 +18,9 @@ serde_json = { version = "1.0.114" }
 base64 = "0.22.1"
 log = "0.4.22"
 stderrlog = "0.6.0"
+byteorder = "1.5.0"
+num-derive = "0.3.3"
+num-traits = "0.2.19"
 thiserror = "1.0.64"
 
 [lints.clippy]
