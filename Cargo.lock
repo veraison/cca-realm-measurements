@@ -398,6 +398,7 @@ dependencies = [
  "serde",
  "serde_json",
  "stderrlog",
+ "thiserror",
  "toml",
  "vm-fdt",
 ]
