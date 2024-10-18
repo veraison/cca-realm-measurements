@@ -71,6 +71,18 @@ impl VmmBlob {
             data: BlobStorage::Bytes(bytes),
         })
     }
+
+    /// read_to_end() with some context in case of error
+    // TODO: avoid large copies
+    pub fn read_to_end_ctx(&mut self, buf: &mut Vec<u8>) -> Result<usize> {
+        match &mut self.data {
+            BlobStorage::File(f) => f.read_to_end(buf).map_err(|e| VmmError::File {
+                filename: self.filename.as_ref().unwrap().to_string(),
+                e,
+            }),
+            BlobStorage::Bytes(b) => b.as_slice().read_to_end(buf).map_err(VmmError::IO),
+        }
+    }
 }
 
 // From Documentation/arch/arm64/booting.rst

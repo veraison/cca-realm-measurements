@@ -31,7 +31,7 @@ fn main() {
         VmmType::CloudHV(ref a) => cloud_hypervisor::build_params(&args, a),
     };
 
-    let params = params.unwrap_or_else(|e| {
+    let mut params = params.unwrap_or_else(|e| {
         log::error!("Cannot build parameters: {e:#}");
         process::exit(1);
     });

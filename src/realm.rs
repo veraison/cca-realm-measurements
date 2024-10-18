@@ -2,7 +2,7 @@ use log;
 use std::collections::BTreeMap;
 use std::fs;
 use std::fs::File;
-use std::io::{Read, Write};
+use std::io::Write;
 
 use anyhow::{bail, Context, Result};
 use base64::{engine::general_purpose::STANDARD as base64_standard, Engine as _};
@@ -11,7 +11,7 @@ use openssl::sha;
 use crate::command_line::Args;
 use crate::realm_params::RealmParams;
 use crate::utils::*;
-use crate::vmm::{BlobStorage, GuestAddress, VmmBlob};
+use crate::vmm::{GuestAddress, VmmBlob};
 use rmm::{self, RmiHashAlgorithm, RmmRealmMeasurement, RMM_GRANULE};
 
 use crate::realm_comid::RealmEndorsementsComid;
@@ -226,26 +226,10 @@ impl Realm {
     /// Measure one blob, add it to the RIM. Corresponds to one or more calls to
     /// RMI_DATA_CREATE: one for each granule in the blob.
     ///
-    pub fn rim_add_data(&mut self, addr: u64, blob: &VmmBlob) -> Result<u64> {
+    pub fn rim_add_data(&mut self, addr: u64, blob: &mut VmmBlob) -> Result<u64> {
         const GRANULE: usize = RMM_GRANULE as usize;
-        let mut data_size;
-        let mut content;
-        match &blob.data {
-            BlobStorage::File(f) => {
-                // TODO: optimize this, because some of those files
-                // could be several GBs. memmap is an option, though we need
-                // to resize it below in order to measure at page granule.
-                let mut f = f;
-                content = vec![];
-                data_size = f
-                    .read_to_end(&mut content)
-                    .with_context(|| blob.filename.as_ref().unwrap().to_string())?;
-            }
-            BlobStorage::Bytes(b) => {
-                data_size = b.len();
-                content = b.to_vec();
-            }
-        };
+        let mut content = vec![];
+        let mut data_size = blob.read_to_end_ctx(&mut content)?;
 
         // Align to granule size
         let aligned_addr = align_down(addr, GRANULE as u64);
@@ -505,7 +489,7 @@ impl RealmConfig {
         Ok(())
     }
 
-    fn compute_rim(&self) -> Result<Realm> {
+    fn compute_rim(&mut self) -> Result<Realm> {
         let mut realm = Realm::default();
 
         let Some(hash_algo) = self.hash_algo else {
@@ -523,8 +507,8 @@ impl RealmConfig {
             realm.rim_add_ripas(base, end)?;
         }
 
-        for (addr, blob) in &self.rim_blobs {
-            realm.rim_add_data(*addr, &blob)?;
+        for (addr, blob) in &mut self.rim_blobs {
+            realm.rim_add_data(*addr, blob)?;
         }
 
         if let Some(rec) = &self.rec {
@@ -589,7 +573,7 @@ impl RealmConfig {
 
     /// Compute Realm Initial Measurement (RIM) and Realm Extended Measurements
     /// (REM) of the VM. Display or export them.
-    pub fn compute_token(&self) -> Result<()> {
+    pub fn compute_token(&mut self) -> Result<()> {
         let realm = self.compute_rim()?;
 
         if self.endorsements_output.is_none() {
