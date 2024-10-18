@@ -6,7 +6,6 @@
 use std::cmp::{max, min};
 
 use anyhow::{bail, Context, Result};
-use log;
 
 use crate::command_line::*;
 use crate::fdt::*;

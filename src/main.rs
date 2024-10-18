@@ -1,8 +1,6 @@
 use std::process;
 
 use clap::Parser;
-use log;
-use stderrlog;
 
 mod cloud_hypervisor;
 mod command_line;

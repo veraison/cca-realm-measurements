@@ -7,7 +7,6 @@ use crate::utils::*;
 use crate::vmm::*;
 
 use anyhow::{bail, Context, Result};
-use log;
 
 const CLOUDHV_GIC_DIST_BASE: u64 = 0x08ff0000;
 const CLOUDHV_GIC_DIST_SIZE: u64 = 0x10000;
