@@ -90,7 +90,7 @@ pub fn parse_memory_size(s: &str) -> Result<u64> {
 }
 
 pub fn buf_to_hex_str(b: &[u8]) -> String {
-    b.into_iter()
+    b.iter()
         .map(|b| format!("{b:02x}"))
         .collect::<Vec<String>>()
         .join("")
