@@ -9,7 +9,7 @@ use anyhow::{bail, Context, Result};
 
 use crate::command_line::*;
 use crate::fdt::*;
-use crate::realm::*;
+use crate::realm_config::*;
 use crate::utils::*;
 use crate::vmm::*;
 

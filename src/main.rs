@@ -9,6 +9,7 @@ mod kvmtool;
 mod qemu;
 mod realm;
 mod realm_comid;
+mod realm_config;
 mod realm_params;
 mod utils;
 mod vmm;
