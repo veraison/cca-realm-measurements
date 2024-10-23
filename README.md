@@ -1,5 +1,5 @@
 Given a VM configuration and the payload to run in the Realm, this tool
-calculates the Realm Initial and Extended Measurements, needed for CCA
+calculates the Realm Initial and Extensible Measurements, needed for CCA
 attestation.
 
 This is a prototype, to experiment with Realm attestation and find out what
@@ -85,7 +85,7 @@ Realm token
 
 The Realm Token describes the state of the Realm VM at the time it is attested.
 It comprises the Realm Initial Measurement (RIM), which includes initial
-register and memory state, and Realm Extended Measurement (REM) computed by the
+register and memory state, and Realm Extensible Measurement (REM) computed by the
 Realm itself, for example to measure a kernel image obtained from the host at
 runtime.
 

@@ -232,7 +232,7 @@ impl Realm {
     }
 
     /// Compute the hash of the provided buffer, using the Realm hash algorithm
-    fn measure_bytes(&self, data: &[u8]) -> Result<RmmRealmMeasurement> {
+    pub fn measure_bytes(&self, data: &[u8]) -> Result<RmmRealmMeasurement> {
         match self.hash_algo {
             None => Err(RealmError::Uninitialized("hash algorithm".to_string())),
             Some(RmiHashAlgorithm::RmiHashSha256) => {
@@ -410,6 +410,31 @@ impl Realm {
         self.measurements.rim = self.measure_bytes(&bytes)?;
 
         self.debug_rim();
+        Ok(())
+    }
+
+    ///
+    /// Measure buffer into the Realm Extensible Measurement (REM). This
+    /// corresponds to RSI_MEASUREMENT_EXTEND.
+    ///
+    pub fn rem_extend(&mut self, index: usize, buf: &[u8]) -> Result<()> {
+        if index > 3 {
+            return Err(RealmError::Parameter(format!("REM {index}")));
+        }
+
+        const REM_DATA_SIZE: usize = rmm::RMM_REALM_MEASUREMENT_SIZE;
+        if buf.len() > REM_DATA_SIZE {
+            return Err(RealmError::Parameter(format!(
+                "REM measurement value size {} > REM_DATA_SIZE",
+                buf.len()
+            )));
+        }
+
+        let mut bytes: Vec<u8> = buf.to_vec();
+        bytes.resize(REM_DATA_SIZE, 0);
+        self.measurements.rem[index] =
+            self.measure_bytes(&self.measurements.rem[index])?;
+        self.measurements.rem[index] = self.measure_bytes(&bytes)?;
         Ok(())
     }
 }

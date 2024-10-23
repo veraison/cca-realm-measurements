@@ -24,7 +24,8 @@ type Result<T> = core::result::Result<T, RealmError>;
 pub struct RealmConfig {
     // Use a btree so that blobs are sorted
     pub rim_blobs: BTreeMap<GuestAddress, VmmBlob>,
-    pub rem_blobs: Vec<VmmBlob>,
+    /// List of blobs measured into the REMs. First element is the REM index.
+    pub rem_blobs: Vec<(usize, VmmBlob)>,
     pub ram_ranges: BTreeMap<GuestAddress, u64>,
     pub rec: Option<rmm::RmiRecParams>,
     pub personalization_value: PersonalizationValue,
@@ -100,12 +101,10 @@ impl RealmConfig {
         Ok(())
     }
 
-    /// Add binary file to be measured as part of the Realm Extended
+    /// Add binary file to be measured as part of the Realm Extensible
     /// Measurement.
-    ///
-    pub fn add_rem_blob(&mut self, blob: VmmBlob) -> Result<()> {
-        // TODO: Define an order for the REM
-        self.rem_blobs.push(blob);
+    pub fn add_rem_blob(&mut self, index: usize, blob: VmmBlob) -> Result<()> {
+        self.rem_blobs.push((index, blob));
         Ok(())
     }
 
@@ -217,7 +216,14 @@ impl RealmConfig {
     /// Compute Realm Initial Measurement (RIM) and Realm Extended Measurements
     /// (REM) of the VM. Display or export them.
     pub fn compute_token(&mut self) -> Result<()> {
-        let realm = self.compute_rim()?;
+        let mut realm = self.compute_rim()?;
+
+        for (index, blob) in &mut self.rem_blobs {
+            let mut content = vec![];
+            blob.read_to_end_ctx(&mut content)?;
+            let hash = realm.measure_bytes(&content)?;
+            realm.rem_extend(*index, &hash)?;
+        }
 
         if self.endorsements_output.is_none() {
             println!(

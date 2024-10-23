@@ -540,9 +540,9 @@ pub fn build_params(args: &Args, qemu_args: &QemuArgs) -> Result<RealmConfig> {
         qemu.initrd_start = initrd_start;
 
         // Without firmware, the VMM loads images into memory. Otherwise, it
-        // passes them to the firmware via fw_cfg.
+        // passes them to the firmware via fw_cfg. TODO: what REM index?
         if use_firmware {
-            realm.add_rem_blob(kernel)?;
+            realm.add_rem_blob(0, kernel)?;
         } else {
             realm.add_rim_blob(kernel)?;
         }
@@ -555,7 +555,7 @@ pub fn build_params(args: &Args, qemu_args: &QemuArgs) -> Result<RealmConfig> {
             let initrd = VmmBlob::from_file(filename, initrd_start)?;
             qemu.initrd_size = initrd.size;
             if use_firmware {
-                realm.add_rem_blob(initrd)?;
+                realm.add_rem_blob(0, initrd)?;
             } else {
                 realm.add_rim_blob(initrd)?;
             }
