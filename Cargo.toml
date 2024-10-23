@@ -37,3 +37,7 @@ missing_debug_implementations = "warn"
 [lints.clippy]
 # Suggestions are less readable
 manual_range_contains = "allow"
+
+[dev-dependencies]
+# Used by tests/
+bincode = "1.3.3"
