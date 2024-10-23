@@ -76,6 +76,24 @@ impl PersonalizationValue {
 pub struct Measurements {
     pub rim: RmmRealmMeasurement,
     pub rem: [RmmRealmMeasurement; 4],
+    /// measurement length: 32 or 64 bytes
+    length: usize,
+}
+
+impl Measurements {
+    /// Return an array of five reference values encoded in base64 strings. The
+    /// values are truncated in function of the hash algorithm.
+    #[allow(dead_code)]
+    pub fn as_base64_array(&self) -> [String; 5] {
+        assert!(self.length == 32 || self.length == 64);
+        [
+            base64_standard.encode(&self.rim[..self.length]),
+            base64_standard.encode(&self.rem[0][..self.length]),
+            base64_standard.encode(&self.rem[1][..self.length]),
+            base64_standard.encode(&self.rem[2][..self.length]),
+            base64_standard.encode(&self.rem[3][..self.length]),
+        ]
+    }
 }
 
 impl Default for Measurements {
@@ -83,13 +101,14 @@ impl Default for Measurements {
         Self {
             rim: [0; 64],
             rem: [[0; 64], [0; 64], [0; 64], [0; 64]],
+            length: 64,
         }
     }
 }
 
 #[derive(Default)]
 pub struct Realm {
-    pub hash_algo: Option<RmiHashAlgorithm>,
+    hash_algo: Option<RmiHashAlgorithm>,
     // The RIPAS calls depend on the mapping block sizes, which depend on
     // the number of translation table levels.
     block_sizes: u64,
@@ -113,6 +132,17 @@ impl Realm {
         );
     }
 
+    /// Set the hash algorithm used for all measurements.
+    pub fn set_hash_algo(&mut self, algo: RmiHashAlgorithm) -> &mut Self {
+        self.hash_algo = Some(algo);
+        self.measurements.length = match algo {
+            RmiHashAlgorithm::RmiHashSha256 => 32,
+            RmiHashAlgorithm::RmiHashSha512 => 64,
+        };
+        self
+    }
+
+    /// Compute the hash of the provided buffer, using the Realm hash algorithm
     fn measure_bytes(&self, data: &[u8]) -> Result<RmmRealmMeasurement> {
         match self.hash_algo {
             None => bail!("hash algorithm is not known"),
@@ -180,7 +210,7 @@ impl Realm {
             hash_algo,
         );
 
-        self.hash_algo = Some(hash_algo);
+        self.set_hash_algo(hash_algo);
 
         // Since we know the IPA size, we can initialize the block size.
         self.block_sizes = translation_block_sizes(s2sz);
