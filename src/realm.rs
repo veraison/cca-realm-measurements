@@ -364,6 +364,39 @@ impl Realm {
     }
 
     ///
+    /// Add one unmeasured data descriptor to the RIM. Corresponds to one or
+    /// more calls to RMI_DATA_CREATE with the RMI_MEASURE_CONTENT flag clear:
+    /// one for each granule in the range.
+    ///
+    #[allow(dead_code)]
+    pub fn rim_data_create_unmeasured(&mut self, addr: u64, size: u64) -> Result<()> {
+        const GRANULE: usize = RMM_GRANULE as usize;
+
+        let aligned_addr = align_down(addr, RMM_GRANULE);
+        let size = align_up(addr + size, RMM_GRANULE) - aligned_addr;
+
+        log::debug!(
+            "Unmeasured data 0x{:x} - 0x{:x}",
+            aligned_addr,
+            aligned_addr + size - 1
+        );
+
+        for off in (0..size).step_by(GRANULE) {
+            let measurement_desc = rmm::RmmMeasurementDescriptorData::new(
+                &self.measurements.rim,
+                aligned_addr + off,
+                0,        // flags
+                &[0; 64], // content_hash
+            );
+            let bytes = measurement_desc.as_bytes()?;
+            self.measurements.rim = self.measure_bytes(&bytes)?;
+        }
+
+        self.debug_rim();
+        Ok(())
+    }
+
+    ///
     /// Measure one RIPAS range, add it to the RIM. This corresponds to multiple
     /// calls to RMI_RTT_INIT_RIPAS: for one IPA range submitted by the VMM, RMM
     /// performs a measurement for each RTT entry in the range.
