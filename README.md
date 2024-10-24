@@ -2,9 +2,6 @@ Given a VM configuration and the payload to run in the Realm, this tool
 calculates the Realm Initial and Extensible Measurements, needed for CCA
 attestation.
 
-This is a prototype, to experiment with Realm attestation and find out what
-can/should be standardized.
-
 Usage
 =====
 
@@ -19,9 +16,9 @@ Run with:
 In the following example, the realm is started with kvmtool as VMM, using
 direct kernel boot. The host is QEMU TCG.
 
-    realm-token -c configs/qemu-max-8.2.conf -c configs/rmm-1.0-eac5.conf   (1)
+    realm-token -c configs/qemu-max-8.2.conf -c configs/kvm.conf            (1)
         -k ~/build/linux-cca/arch/arm64/boot/Image                          (2)
-        --output-dtb ~/vm/shr/qemu-gen.dtb                                  (3)
+        --output-dtb ~/vm/shr/kvmtool-gen.dtb                               (3)
         kvmtool                                                             (4)
         -c 2 -m 256 --realm --console virtio --irqchip=gicv3-its
         --sve-vl=512 --pmu -k guest_kernel -d disk --9p shr
@@ -78,6 +75,14 @@ A config file gen-run-vmm.cfg for this script could be:
     OUTPUT_SCRIPT_DIR=$HOME/shr/
     OUTPUT_DTB_DIR=$HOME/shr/
     CONFIGS_DIR=$HOME/src/realm-token/configs/
+
+
+Event log
+---------
+
+The event_log library parses a TCG event log to construct the reference values.
+See [docs/measurement-log.md], examples/ and the rust documentation for this
+library.
 
 
 Realm token
