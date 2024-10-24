@@ -1,6 +1,8 @@
 use std::fs::File;
 use std::io::{Read, Seek, Write};
 
+use crate::realm::RealmConfig;
+
 #[derive(Debug, thiserror::Error)]
 pub enum VmmError {
     #[error("invalid Linux header")]
@@ -11,13 +13,34 @@ pub enum VmmError {
 
     #[error("I/O error")]
     IO(#[from] std::io::Error),
+
+    // RealmError already has a VmmError -> RealmError conversion, so this has
+    // to be a string
+    #[error("realm: {0}")]
+    Realm(String),
+
+    #[error("FDT")]
+    Fdt(#[from] vm_fdt::Error),
+
+    #[error("unimplemented: {0}")]
+    Unimplemented(String),
+
+    #[error("{0}")]
+    Other(String),
 }
-type Result<T> = core::result::Result<T, VmmError>;
+/// A Result for VmmError
+pub type VmmResult<T> = core::result::Result<T, VmmError>;
+type Result<T> = VmmResult<T>;
 
 pub type GuestAddress = u64;
 
+/// The kind of Generic Interrupt Controller implemented in the VM
+#[derive(Default)]
 pub enum GicModel {
+    /// version 3
+    #[default]
     GICv3,
+    /// version 4
     GICv4,
 }
 
@@ -178,4 +201,44 @@ pub fn write_dtb(output_dtb: &String, bytes: &[u8]) -> Result<()> {
         filename: output_dtb.to_string(),
     })?;
     Ok(())
+}
+
+/// Generate a device tree blob
+pub trait DTBGenerator {
+    /// Generate a DTB
+    fn gen_dtb(&self) -> Result<Vec<u8>>;
+    /// Set base and size of the initrd
+    fn set_initrd(&mut self, base: GuestAddress, size: u64);
+    /// Set base and size of the log
+    fn set_log_location(&mut self, base: GuestAddress, size: u64);
+    /// Enable or disable PMU
+    fn set_pmu(&mut self, pmu: bool);
+    /// Enable or disable GIC ITS
+    fn set_its(&mut self, its: bool);
+    /// Set kernel parameters
+    fn set_bootargs(&mut self, args: &str);
+    /// Set number of CPUs
+    fn set_num_cpus(&mut self, num_cpus: usize);
+    /// Set RAM size
+    fn set_mem_size(&mut self, mem_size: u64);
+
+    /// Add DTB to the realm, and optionally write it to file @output
+    fn add_dtb(
+        &self,
+        output: &Option<String>,
+        base: GuestAddress,
+        realm: &mut RealmConfig,
+    ) -> Result<()> {
+        let dtb = self.gen_dtb()?;
+
+        if let Some(filename) = output {
+            write_dtb(filename, &dtb)?;
+        }
+
+        let blob = VmmBlob::from_bytes(dtb, base)?;
+        realm
+            .add_rim_blob(blob)
+            .map_err(|e| VmmError::Realm(e.to_string()))?;
+        Ok(())
+    }
 }
