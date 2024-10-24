@@ -88,49 +88,62 @@ pub struct RealmParams {
 }
 
 impl RealmParams {
+    /// Set the number of IPA bits.
     pub fn set_ipa_bits(&mut self, v: u8) -> Result<()> {
         self.ipa_bits = Some(check_ipa_bits(v)?);
         Ok(())
     }
 
+    /// Set the number of IPA bits if `v` is smaller than the current parameter.
     pub fn restrict_ipa_bits(&mut self, v: u8) -> Result<()> {
         restrict_val(&mut self.ipa_bits, check_ipa_bits(v)?);
         Ok(())
     }
 
+    /// Set the number of breakpoints.
     pub fn set_num_bps(&mut self, v: u8) -> Result<()> {
         self.num_bps = Some(check_num_bps(v)?);
         Ok(())
     }
 
+    /// Set the number of breakpoints if `v` is smaller than the current
+    /// parameter.
     pub fn restrict_num_bps(&mut self, v: u8) -> Result<()> {
         restrict_val(&mut self.num_bps, check_num_bps(v)?);
         Ok(())
     }
 
+    /// Set the number of watchpoints.
     pub fn set_num_wps(&mut self, v: u8) -> Result<()> {
         self.num_wps = Some(check_num_wps(v)?);
         Ok(())
     }
 
+    /// Set the number of watchpoints if `v` is smaller than the current
+    /// parameter.
     pub fn restrict_num_wps(&mut self, v: u8) -> Result<()> {
         restrict_val(&mut self.num_wps, check_num_wps(v)?);
         Ok(())
     }
 
+    /// Enable or disable the PMU
     pub fn set_pmu(&mut self, pmu: bool) {
         self.pmu = Some(pmu);
     }
 
+    /// Disable the PMU, or enable it if not already disabled.
     pub fn restrict_pmu(&mut self, pmu: bool) {
         restrict_val(&mut self.pmu, pmu);
     }
 
+    /// Set the number of PMU counters.
     pub fn set_pmu_num_ctrs(&mut self, num_ctrs: u8) -> Result<()> {
         self.pmu_num_ctrs = Some(check_pmu_ctrs(num_ctrs)?);
         Ok(())
     }
 
+    /// Set the number of PMU counters if `v` is smaller than the current
+    /// parameter.
     pub fn restrict_pmu_num_ctrs(&mut self, v: u8) -> Result<()> {
         restrict_val(&mut self.pmu_num_ctrs, check_pmu_ctrs(v)?);
         Ok(())
@@ -142,16 +155,19 @@ impl RealmParams {
         Ok(())
     }
 
-    /// Set SVE vector length in bits, but not if the current value is lower.
+    /// Set SVE vector length in bits if `v` is lower than the current
+    /// parameter.
     pub fn restrict_sve_vl(&mut self, v: u16) -> Result<()> {
         restrict_val(&mut self.sve_vl, check_sve_vl(v)?);
         Ok(())
     }
 
+    /// Enable or disable LPA2.
     pub fn set_lpa2(&mut self, lpa2: bool) {
         self.lpa2 = Some(lpa2);
     }
 
+    /// Disable LPA2, or enable it if not already disabled.
     pub fn restrict_lpa2(&mut self, lpa2: bool) {
         restrict_val(&mut self.lpa2, lpa2);
     }

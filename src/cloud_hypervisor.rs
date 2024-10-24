@@ -33,8 +33,9 @@ const CLOUDHV_KERNEL_BASE: u64 = CLOUDHV_MEM_START + 0x400000;
 const CLOUDHV_SPI_RTC: u32 = 0x8;
 const CLOUDHV_SPI_UART: u32 = 0xb;
 
-// lkvm run arguments. Define anything that could be passed to cloud-hypervisor,
-// even those we won't inspect ourself, so the arg parser doesn't complain.
+/// Cloud hypervisor arguments.
+// Define anything that could be passed to cloud-hypervisor, even those we won't
+// inspect ourself, so the arg parser doesn't complain.
 #[derive(Debug, clap::Args)]
 pub struct CloudHVArgs {
     #[arg(long)]
@@ -356,6 +357,7 @@ fn add_dtb(
     Ok(())
 }
 
+/// Create a [RealmConfig] from the cloud-hypervisor command-line arguments.
 pub fn build_params(args: &Args, cloudhv_args: &CloudHVArgs) -> Result<RealmConfig> {
     let mut realm = RealmConfig::from_args(args)?;
     let mut cloudhv = CloudHVParams {

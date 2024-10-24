@@ -4,6 +4,7 @@ use std::io::{Read, Seek, Write};
 use crate::realm::RealmConfig;
 
 #[derive(Debug, thiserror::Error)]
+#[allow(missing_docs)]
 pub enum VmmError {
     #[error("invalid Linux header")]
     InvalidLinuxHeader,
@@ -32,6 +33,7 @@ pub enum VmmError {
 pub type VmmResult<T> = core::result::Result<T, VmmError>;
 type Result<T> = VmmResult<T>;
 
+/// A Guest Physical Address (GPA) aka. Intermediate Physical Address (IPA)
 pub type GuestAddress = u64;
 
 /// The kind of Generic Interrupt Controller implemented in the VM
@@ -44,18 +46,26 @@ pub enum GicModel {
     GICv4,
 }
 
+/// The storage of an image loaded into the guest
 pub enum BlobStorage {
+    /// A file.
     File(File),
+    /// A buffer.
     Bytes(Vec<u8>),
 }
 
+/// An image loaded into the guest
 pub struct VmmBlob {
+    /// Filename of the image (FIXME)
     pub filename: Option<String>,
+    /// Base address of the image in the guest
     pub guest_start: GuestAddress,
-    // size loaded into memory, including zero-initialized data.
-    // if it is None, use the file size.
+    /// Size loaded into memory, including zero-initialized data.
+    /// If it is None, use the file size.
     pub load_size: Option<u64>,
+    /// Size of the image (file size)
     pub size: u64,
+    /// The image content
     pub data: BlobStorage,
 }
 

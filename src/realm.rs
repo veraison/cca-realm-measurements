@@ -13,6 +13,7 @@ pub use crate::realm_config::RealmConfig;
 pub use crate::realm_params::RealmParams;
 
 #[derive(Debug, thiserror::Error)]
+#[allow(missing_docs)]
 pub enum RealmError {
     #[error("invalid Realm Personalization Value")]
     InvalidRPV,
@@ -94,6 +95,7 @@ impl PersonalizationValue {
         Ok(())
     }
 
+    /// Encode as base64 string
     pub fn as_base64(&self) -> String {
         base64_standard.encode(self.0)
     }
@@ -106,7 +108,9 @@ impl PersonalizationValue {
 ///
 #[derive(Debug)]
 pub struct Measurements {
+    /// the initial measurement
     pub rim: RmmRealmMeasurement,
+    /// the extensible measurements
     pub rem: [RmmRealmMeasurement; 4],
     /// measurement length: 32 or 64 bytes
     length: usize,
@@ -196,7 +200,7 @@ fn translation_block_sizes(ipa_bits: u8) -> u64 {
 }
 
 ///
-/// Represents the Realm state during and after initialization
+/// Represents the Realm state during and after initialization.
 ///
 #[derive(Default)]
 pub struct Realm {
@@ -204,10 +208,17 @@ pub struct Realm {
     // The RIPAS calls depend on the mapping block sizes, which depend on
     // the number of translation table levels.
     block_sizes: u64,
+    /// The RIM and REM measurements.
     pub measurements: Measurements,
 }
 
 impl Realm {
+    /// Return a string representation of the current measurements
+    ///
+    /// # Arguments
+    ///
+    /// * `print_b64`: return a base64 encoded string. Otherwise, return a raw
+    ///   hexadecimal string.
     pub fn dump_measurement(&self, m: &RmmRealmMeasurement, print_b64: bool) -> String {
         if print_b64 {
             base64_standard.encode(m)
@@ -401,8 +412,10 @@ impl Realm {
     /// calls to RMI_RTT_INIT_RIPAS: for one IPA range submitted by the VMM, RMM
     /// performs a measurement for each RTT entry in the range.
     ///
-    /// @base: the base IPA of the range, inclusive.
-    /// @top: the top IPA, exclusive (size = top - base).
+    /// # Arguments
+    ///
+    /// * `base`: the base IPA of the range, inclusive.
+    /// * `top`: the top IPA, exclusive (`size = top - base`).
     ///
     pub fn rim_init_ripas(&mut self, base: u64, top: u64) -> Result<()> {
         if top <= base || !is_aligned(top | base, RMM_GRANULE) {

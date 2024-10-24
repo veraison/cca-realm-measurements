@@ -84,6 +84,7 @@ impl QemuParams {
     }
 }
 
+/// Command-line arguments for QEMU
 #[derive(Debug, clap::Args)]
 pub struct QemuArgs {
     /// Arguments passed to QEMU
@@ -508,8 +509,7 @@ fn check_memmap(realm: &mut RealmConfig, qemu: &mut QemuParams) -> Result<()> {
     Ok(())
 }
 
-/// Create the Realm parameters, vCPUs and blobs that contribute to RIM and REM.
-///
+/// Create a [RealmConfig] from the QEMU command-line.
 pub fn build_params(args: &Args, qemu_args: &QemuArgs) -> Result<RealmConfig> {
     let mut use_firmware = false;
     let mut use_kernel = false;

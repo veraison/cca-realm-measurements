@@ -38,7 +38,8 @@ const FDT_DEFAULT_LIMIT: GuestAddress = KVMTOOL_MEM_BASE + 256 * MIB;
 const FDT_ALIGN: GuestAddress = 2 * MIB;
 const FDT_SIZE: usize = 0x10000;
 
-// lkvm run arguments. Define anything that could be passed to kvmtool, even
+/// lkvm run arguments.
+// Define anything that could be passed to kvmtool, even
 // those we won't inspect ourself, so the arg parser doesn't complain. But don't
 // define those we don't currently support, such as "aarch32".
 #[derive(Debug, clap::Args)]
@@ -596,8 +597,7 @@ impl DTBGenerator for KvmtoolParams {
     }
 }
 
-/// Create the Realm parameters, vCPUs and blobs that contribute to RIM and REM.
-///
+/// Create a [RealmConfig] from the kvmtool command-line.
 pub fn build_params(args: &Args, lkvm_args: &KvmtoolArgs) -> Result<RealmConfig> {
     let mut realm = RealmConfig::from_args(args)?;
     let mut kvmtool = KvmtoolParams::new();

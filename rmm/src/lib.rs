@@ -169,7 +169,6 @@ impl RmiRecParams {
 #[derive(Serialize)]
 #[repr(C, packed)]
 pub struct RmmMeasurementDescriptorData {
-    // pub?
     desc_type: u8,
     unused1: [u8; 7],
     len: u64,

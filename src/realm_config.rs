@@ -20,19 +20,27 @@ use crate::realm_comid::RealmEndorsementsComid;
 
 type Result<T> = core::result::Result<T, RealmError>;
 
+/// High level configuration of the Realm. Compared to the low-level [Realm]
+/// state, this adds some restrictions on the way the Realm is constructed, in
+/// order to follow a strict VMM specification (`docs/realm-vm.md`).
 #[derive(Default)]
 pub struct RealmConfig {
-    /// Sorted list of blobs measured into the RIM
-    pub rim_blobs: BTreeMap<GuestAddress, VmmBlob>,
+    // Sorted list of blobs measured into the RIM
+    rim_blobs: BTreeMap<GuestAddress, VmmBlob>,
     // List of unmeasured data regions (address, size)
     rim_unmeasured: Vec<(GuestAddress, u64)>,
-    /// List of blobs measured into the REM
-    pub rem_blobs: Vec<(usize, VmmBlob)>,
-    pub ram_ranges: BTreeMap<GuestAddress, u64>,
-    pub rec: Option<rmm::RmiRecParams>,
-    pub personalization_value: PersonalizationValue,
-    pub print_b64: bool,
+    // List of (REM index, blobs) measured into the REM
+    rem_blobs: Vec<(usize, VmmBlob)>,
+    // RAM areas in the guest initialized with INIT_RIPAS
+    ram_ranges: BTreeMap<GuestAddress, u64>,
+    // The primary REC. We assume only the primary vCPU is runnable and the
+    // others are booted with PSCI.
+    rec: Option<rmm::RmiRecParams>,
+    print_b64: bool,
 
+    /// The Realm Personalization Value.
+    pub personalization_value: PersonalizationValue,
+    /// Realm parameters.
     pub params: RealmParams,
 
     endorsements_template: Option<String>,
@@ -79,12 +87,17 @@ impl RealmConfig {
         Ok(())
     }
 
+    /// Set algo used for all measurements
+    ///
+    /// # Arguments:
+    ///
+    /// * `s`: "sha256" or "sha512"
     pub fn set_measurement_algo(&mut self, s: &str) -> Result<()> {
         self.params.hash_algo = Some(s.parse::<RmiHashAlgorithm>()?);
         Ok(())
     }
 
-    /// Add a range of RAM
+    /// Add a range of RAM, to be initialized with INIT_RIPAS
     pub fn add_ram(&mut self, base: GuestAddress, size: u64) -> Result<()> {
         if self.ram_ranges.insert(base, size).is_some() {
             return Err(RealmError::Config(format!("duplicate RAM range at {base}")));
@@ -94,7 +107,6 @@ impl RealmConfig {
 
     /// Add binary file to be measured as part of the Realm Initial Measurement.
     /// The VMM loads it into guest memory before boot.
-    ///
     pub fn add_rim_blob(&mut self, blob: VmmBlob) -> Result<()> {
         let address = blob.guest_start;
         if self.rim_blobs.insert(address, blob).is_some() {
@@ -226,8 +238,8 @@ impl RealmConfig {
         Ok(())
     }
 
-    /// Compute Realm Initial Measurement (RIM) and Realm Extended Measurements
-    /// (REM) of the VM. Display or export them.
+    /// Compute Realm Initial Measurement (RIM) and Realm Extensible
+    /// Measurements (REM) of the VM. Display or export them.
     pub fn compute_token(&mut self) -> Result<()> {
         let mut realm = self.compute_rim()?;
 
