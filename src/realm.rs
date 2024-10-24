@@ -167,7 +167,10 @@ fn find_block_size(start: u64, top: u64, sizes: u64) -> u64 {
     block_size
 }
 
-// Compute the supported block size in the translation table, as a bitmask
+// Compute the supported block size in the translation table, as a bitmask.
+// This assumes the hypervisor uses concatenated tables at the initial level
+// whenever possible, which is an optional feature. It works for KVM but perhaps
+// not all hypervisors. TODO: implement different hypervisor behaviors?
 fn translation_block_sizes(ipa_bits: u8) -> u64 {
     let page_bits = RMM_GRANULE.ilog2() as u8;
     let table_bits = ipa_bits - page_bits;
@@ -248,7 +251,7 @@ impl Realm {
     ///
     /// Initialize the Realm state. Corresponds to RMI_REALM_CREATE.
     ///
-    pub fn rim_init(&mut self, params: &RealmParams) -> Result<()> {
+    pub fn rim_realm_create(&mut self, params: &RealmParams) -> Result<()> {
         let mut flags = 0;
         let mut sve_vl = 0;
 
@@ -280,7 +283,7 @@ impl Realm {
                 sve_vl = sve_vl_to_vq(v);
             }
         }
-        if params.lpa2.is_some() && params.lpa2.unwrap() {
+        if params.lpa2.unwrap_or(false) {
             flags |= rmm::RMI_REALM_F_LPA2;
         }
         if params.pmu.is_some() && params.pmu.unwrap() {
@@ -311,32 +314,33 @@ impl Realm {
 
     ///
     /// Measure one blob, add it to the RIM. Corresponds to one or more calls to
-    /// RMI_DATA_CREATE: one for each granule in the blob.
+    /// RMI_DATA_CREATE with the RMI_MEASURE_CONTENT flag set: one for each
+    /// granule in the blob.
     ///
-    pub fn rim_add_data(&mut self, addr: u64, blob: &mut VmmBlob) -> Result<u64> {
+    pub fn rim_data_create(&mut self, addr: u64, blob: &mut VmmBlob) -> Result<u64> {
         const GRANULE: usize = RMM_GRANULE as usize;
         let mut content = vec![];
         let mut data_size = blob.read_to_end_ctx(&mut content)?;
 
         // Align to granule size
-        let aligned_addr = align_down(addr, GRANULE as u64);
+        let aligned_addr = align_down(addr, RMM_GRANULE);
         let fill_size = (addr - aligned_addr) as usize;
         data_size += fill_size;
         content.resize(data_size, 0);
         content.rotate_right(fill_size);
 
         // Fill up to granule size
-        data_size = align_up(data_size as u64, GRANULE as u64) as usize;
+        data_size = align_up(data_size as u64, RMM_GRANULE) as usize;
         content.resize(data_size, 0);
 
         log::debug!(
             "Measuring data 0x{:x} - 0x{:x}",
             aligned_addr,
-            aligned_addr + content.len() as u64 - 1
+            aligned_addr + data_size as u64 - 1
         );
 
         // Measure each page
-        for off in (0..content.len()).step_by(GRANULE) {
+        for off in (0..data_size).step_by(GRANULE) {
             let page: &[u8; GRANULE] = &content[off..off + GRANULE]
                 .try_into()
                 .expect("aligned data");
@@ -362,7 +366,10 @@ impl Realm {
     /// calls to RMI_RTT_INIT_RIPAS: for one IPA range submitted by the VMM, RMM
     /// performs a measurement for each RTT entry in the range.
     ///
-    pub fn rim_add_ripas(&mut self, base: u64, top: u64) -> Result<()> {
+    /// @base: the base IPA of the range, inclusive.
+    /// @top: the top IPA, exclusive (size = top - base).
+    ///
+    pub fn rim_init_ripas(&mut self, base: u64, top: u64) -> Result<()> {
         if top <= base || !is_aligned(top | base, RMM_GRANULE) {
             return Err(RealmError::Parameter(format!("RIPAS({base:x}, {top:x})")));
         }
@@ -398,7 +405,7 @@ impl Realm {
     /// Measure one REC structure, add it to the RIM. This corresponds to a call
     /// to RMI_REC_CREATE.
     ///
-    pub fn rim_add_rec(&mut self, rec: &rmm::RmiRecParams) -> Result<()> {
+    pub fn rim_rec_create(&mut self, rec: &rmm::RmiRecParams) -> Result<()> {
         let bytes = rec.as_bytes()?;
         let content_hash = self.measure_bytes(&bytes)?;
 

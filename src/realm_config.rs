@@ -22,9 +22,9 @@ type Result<T> = core::result::Result<T, RealmError>;
 
 #[derive(Default)]
 pub struct RealmConfig {
-    // Use a btree so that blobs are sorted
+    /// Sorted list of blobs measured into the RIM
     pub rim_blobs: BTreeMap<GuestAddress, VmmBlob>,
-    /// List of blobs measured into the REMs. First element is the REM index.
+    /// List of blobs measured into the REM
     pub rem_blobs: Vec<(usize, VmmBlob)>,
     pub ram_ranges: BTreeMap<GuestAddress, u64>,
     pub rec: Option<rmm::RmiRecParams>,
@@ -123,26 +123,25 @@ impl RealmConfig {
         Ok(())
     }
 
+    /// Compute the RIM using a predefined order: first init RIPAS of the whole
+    /// guest RAM, then data granules in ascending order, then the RECs.
     fn compute_rim(&mut self) -> Result<Realm> {
         let mut realm = Realm::default();
 
-        realm.rim_init(&self.params)?;
-
-        // The order is: first init RIPAS of the whole guest RAM, then data
-        // granules in ascending order, then the RECs.
+        realm.rim_realm_create(&self.params)?;
 
         for (addr, size) in &self.ram_ranges {
             let base = align_down(*addr, RMM_GRANULE);
             let end = align_up(base + *size - 1, RMM_GRANULE);
-            realm.rim_add_ripas(base, end)?;
+            realm.rim_init_ripas(base, end)?;
         }
 
         for (addr, blob) in &mut self.rim_blobs {
-            realm.rim_add_data(*addr, blob)?;
+            realm.rim_data_create(*addr, blob)?;
         }
 
         if let Some(rec) = &self.rec {
-            realm.rim_add_rec(rec)?;
+            realm.rim_rec_create(rec)?;
         } else {
             log::debug!("Missing REC");
         }
