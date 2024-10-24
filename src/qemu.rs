@@ -645,7 +645,7 @@ mod tests {
     #[test]
     fn test_mem() {
         fn string_to_args(s: &str) -> RawArgs {
-            raw_args_from_vec(&vec![String::from(s)])
+            raw_args_from_vec(&[String::from(s)])
         }
 
         let mut args = string_to_args("hello");
@@ -654,7 +654,7 @@ mod tests {
 
         let mut args = string_to_args("1");
         let r = parse_mem(&mut args).unwrap();
-        assert_eq!(r, 1 * MIB);
+        assert_eq!(r, MIB);
 
         let mut args = string_to_args("512");
         let r = parse_mem(&mut args).unwrap();
