@@ -273,10 +273,6 @@ impl Realm {
         let Some(num_bps) = params.num_bps else {
             return Err(RealmError::Uninitialized("num_bps".to_string()));
         };
-        let Some(pmu_num_ctrs) = params.pmu_num_ctrs else {
-            return Err(RealmError::Uninitialized("pmu_num_ctrs".to_string()));
-        };
-
         if let Some(v) = params.sve_vl {
             if v > 0 {
                 flags |= rmm::RMI_REALM_F_SVE;
@@ -286,9 +282,15 @@ impl Realm {
         if params.lpa2.unwrap_or(false) {
             flags |= rmm::RMI_REALM_F_LPA2;
         }
-        if params.pmu.is_some() && params.pmu.unwrap() {
+        let pmu_num_ctrs = if params.pmu.unwrap_or(false) {
             flags |= rmm::RMI_REALM_F_PMU;
-        }
+            params
+                .pmu_num_ctrs
+                .ok_or(RealmError::Uninitialized("pmu_num_ctrs".to_string()))?
+        } else {
+            0
+        };
+
         assert!(num_bps > 1 && num_wps > 1);
         let params = rmm::RmiRealmParams::new(
             flags,
