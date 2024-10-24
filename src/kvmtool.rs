@@ -28,11 +28,13 @@ const KVMTOOL_GIC_REDIST_SIZE: u64 = 0x20000;
 const KVMTOOL_GIC_ITS_SIZE: u64 = 128 * KIB;
 const KVMTOOL_MEM_BASE: u64 = 0x80000000;
 
+const KVMTOOL_LOG_SIZE: u64 = 64 * KIB;
+
 const KVMTOOL_SPI_UART: u32 = 0;
 const KVMTOOL_SPI_VIRTIO_MMIO: u32 = 4;
 const KVMTOOL_SPI_PCI: u32 = 64;
 
-const FDT_BASE: GuestAddress = KVMTOOL_MEM_BASE + (256 - 2) * MIB;
+const FDT_DEFAULT_LIMIT: GuestAddress = KVMTOOL_MEM_BASE + 256 * MIB;
 const FDT_ALIGN: GuestAddress = 2 * MIB;
 const FDT_SIZE: usize = 0x10000;
 
@@ -138,6 +140,9 @@ pub struct KvmtoolArgs {
     measurement_algo: Option<String>,
 
     #[arg(long)]
+    measurement_log: bool,
+
+    #[arg(long)]
     realm_pv: Option<String>,
 
     #[arg(long)]
@@ -173,20 +178,41 @@ enum DeviceType {
     Virtio,
 }
 
+/// Kvmtool configuration
 #[derive(Default)]
-struct KvmtoolParams {
-    num_cpus: usize,
-    mem_base: GuestAddress,
-    mem_size: GuestAddress,
-    dtb_base: GuestAddress,
-    firmware_base: GuestAddress,
+pub struct KvmtoolParams {
+    /// Number of vCPUs
+    pub num_cpus: usize,
+    /// Base address of RAM
+    pub mem_base: GuestAddress,
+    /// Size of RAM
+    pub mem_size: GuestAddress,
+    /// Is the GIC ITS enabled
+    pub has_its: bool,
+    /// Kernel command-line arguments
+    pub bootargs: Option<String>,
+
     initrd_base: GuestAddress,
     initrd_size: GuestAddress,
-    use_kernel: bool,
-    use_firmware: bool,
-    has_its: bool,
+    firmware_base: GuestAddress,
     virtio_transport: VirtioTransport,
     virtio_mmio_devices: usize,
+    use_kernel: bool,
+    use_firmware: bool,
+    pmu: bool,
+
+    /* base, size */
+    log: Option<(GuestAddress, u64)>,
+}
+
+impl KvmtoolParams {
+    /// Create a new KvmtoolParams
+    pub fn new() -> Self {
+        KvmtoolParams {
+            mem_base: KVMTOOL_MEM_BASE,
+            ..Default::default()
+        }
+    }
 }
 
 /// Parse "-m sz[@addr]" argument
@@ -201,7 +227,7 @@ fn parse_mem(arg: &Option<String>, kvmtool: &mut KvmtoolParams) -> Result<()> {
         bail!("invalid mem");
     };
 
-    kvmtool.mem_size = parse_memory_size(mem_str).context("-m")?;
+    kvmtool.set_mem_size(parse_memory_size(mem_str).context("-m")?);
     if !is_aligned(kvmtool.mem_size, 2 * MIB) {
         bail!("RAM size must be aligned on 2MB");
     }
@@ -262,10 +288,10 @@ fn parse_device_cmdline(args: &KvmtoolArgs, kvmtool: &mut KvmtoolParams) -> Resu
     use DeviceType::*;
     // Note that this depends on the host capabilities, but we assume it
     // supports ITS.
-    kvmtool.has_its = true;
+    kvmtool.set_its(true);
     if let Some(v) = &args.irqchip {
         match v.as_str() {
-            "gicv3" => kvmtool.has_its = false,
+            "gicv3" => kvmtool.set_its(false),
             "gicv3-its" => (),
             _ => bail!("unsupported irqchip {}", v),
         }
@@ -320,11 +346,15 @@ fn parse_cmdline(
     kvmtool: &mut KvmtoolParams,
 ) -> Result<()> {
     if let Some(cpus) = args.cpus {
-        kvmtool.num_cpus = cpus;
+        kvmtool.set_num_cpus(cpus);
     } else {
         bail!("number of vCPUs is not known");
     }
     parse_mem(&args.mem, kvmtool)?;
+
+    if let Some(p) = &args.params {
+        kvmtool.set_bootargs(p);
+    }
 
     // Update realm params
 
@@ -367,186 +397,228 @@ fn parse_cmdline(
     Ok(())
 }
 
-/// Generate a DTB for the virt machine, and add it as a blob
-fn add_dtb(
-    args: &KvmtoolArgs,
-    realm: &mut RealmConfig,
-    kvmtool: &KvmtoolParams,
-    output: &Option<String>,
-) -> Result<()> {
-    let gic_phandle: u32 = 1;
-    let its_phandle: u32 = 2;
+fn resize_dtb(mut dtb: Vec<u8>) -> VmmResult<Vec<u8>> {
+    if dtb.len() > FDT_SIZE {
+        return Err(VmmError::Other(format!(
+            "generated DTB is too large ({} > {FDT_SIZE})",
+            dtb.len()
+        )));
+    }
+    dtb.resize(FDT_SIZE, 0);
+    Ok(dtb)
+}
 
-    let initrd = if kvmtool.initrd_size != 0 {
-        Some((kvmtool.initrd_base, kvmtool.initrd_size))
-    } else {
-        None
-    };
-
-    let (mut fdt, root_node) = fdt_new(
-        (kvmtool.mem_base, kvmtool.mem_size),
-        kvmtool.num_cpus,
-        gic_phandle,
-        args.params.as_deref(),
-        initrd,
-    )?;
-
-    let redist_size = (kvmtool.num_cpus as u64) * KVMTOOL_GIC_REDIST_SIZE;
-    let redist_base = KVMTOOL_GIC_DIST_BASE - redist_size;
-
-    let its_reg = if kvmtool.has_its {
-        let its_size = KVMTOOL_GIC_ITS_SIZE;
-        let its_base = redist_base - its_size;
-        Some([its_base, its_size])
-    } else {
-        None
-    };
-
-    fdt_add_gic(
-        &mut fdt,
-        &[
-            KVMTOOL_GIC_DIST_BASE,
-            KVMTOOL_GIC_DIST_SIZE,
-            redist_base,
-            redist_size,
-        ],
-        its_reg,
-        gic_phandle,
-        its_phandle,
-    )?;
-
-    fdt_add_timer(&mut fdt, &[13, 14, 11], FDT_IRQ_LEVEL_LO)?;
-    if realm.params.pmu.is_some_and(|v| v) {
-        fdt_add_pmu(&mut fdt, 7)?;
+impl DTBGenerator for KvmtoolParams {
+    fn set_initrd(&mut self, base: GuestAddress, size: u64) {
+        self.initrd_base = base;
+        self.initrd_size = size;
     }
 
-    let mut spi = KVMTOOL_SPI_UART;
-    for i in 0..4 {
-        let addr = KVMTOOL_UART_BASE + i as u64 * KVMTOOL_UART_STRIDE;
-        let serial_node = fdt_begin_node_addr(&mut fdt, "U6_16550A", addr)?;
-        fdt.property_string("compatible", "ns16550a")?;
-        fdt.property_array_u64("reg", &[addr, KVMTOOL_UART_SIZE])?;
-        fdt.property_array_u32("interrupts", &[FDT_IRQ_SPI, spi, FDT_IRQ_LEVEL_HI])?;
-        fdt.property_u32("clock-frequency", 1843200)?;
-        fdt.end_node(serial_node)?;
-        spi += 1
+    fn set_log_location(&mut self, base: GuestAddress, size: u64) {
+        self.log = Some((base, size));
     }
 
-    spi = KVMTOOL_SPI_VIRTIO_MMIO;
-    for i in 0..kvmtool.virtio_mmio_devices {
-        let size = KVMTOOL_VIRTIO_MMIO_SIZE;
-        let addr = KVMTOOL_VIRTIO_MMIO_BASE + i as u64 * size;
-        let mmio_node = fdt_begin_node_addr(&mut fdt, "virtio", addr)?;
-        fdt.property_string("compatible", "virtio,mmio")?;
-        fdt.property_array_u64("reg", &[addr, size])?;
-        fdt.property_null("dma-coherent")?;
-        fdt.property_array_u32("interrupts", &[FDT_IRQ_SPI, spi, FDT_IRQ_EDGE_LO_HI])?;
-        fdt.end_node(mmio_node)?;
-        spi += 1;
+    fn set_mem_size(&mut self, mem_size: u64) {
+        self.mem_size = mem_size;
     }
 
-    let rtc_node = fdt_begin_node_addr(&mut fdt, "rtc", KVMTOOL_RTC_BASE)?;
-    fdt.property_string("compatible", "motorola,mc146818")?;
-    fdt.property_array_u64("reg", &[KVMTOOL_RTC_BASE, KVMTOOL_RTC_SIZE])?;
-    fdt.end_node(rtc_node)?;
+    fn set_num_cpus(&mut self, num_cpus: usize) {
+        self.num_cpus = num_cpus;
+    }
 
-    let pcie_node = fdt_begin_node_addr(&mut fdt, "pci", KVMTOOL_PCI_CFG_BASE)?;
-    fdt.property_string("device_type", "pci")?;
-    fdt.property_u32("#address-cells", 3)?;
-    fdt.property_u32("#size-cells", 2)?;
-    fdt.property_null("dma-coherent")?;
-    fdt.property_array_u32("bus-range", &[0, 0])?;
-    fdt.property_string("compatible", "pci-host-ecam-generic")?;
-    fdt.property_array_u64("reg", &[KVMTOOL_PCI_CFG_BASE, KVMTOOL_PCI_CFG_SIZE])?;
-    fdt.property_array_u32(
-        "ranges",
-        &[
-            FDT_PCI_RANGE_IOPORT,
-            0,
-            0,
-            0,
-            lo(KVMTOOL_IOPORT_BASE),
-            0,
-            lo(KVMTOOL_IOPORT_SIZE),
-            FDT_PCI_RANGE_MMIO,
-            0,
-            lo(KVMTOOL_PCI_MMIO_BASE),
-            0,
-            lo(KVMTOOL_PCI_MMIO_BASE),
-            0,
-            lo(KVMTOOL_PCI_MMIO_SIZE),
-        ],
-    )?;
-    // Now the interrupts. SPIs 64-127 are allocated for PCI, one per slot
-    // number. Only pin #A is supported. Buses share the interrupts.
-    spi = KVMTOOL_SPI_PCI;
-    let mut irq_map: Vec<u32> = vec![];
-    for i in 0..32 {
-        let devfn = pci_devfn(i as u8, 0);
-        irq_map.extend_from_slice(&[
-            (devfn as u32) << 8,
-            0,
-            0,
-            1, // pin
+    fn set_pmu(&mut self, pmu: bool) {
+        self.pmu = pmu;
+    }
+
+    fn set_its(&mut self, its: bool) {
+        self.has_its = its;
+    }
+
+    fn set_bootargs(&mut self, bootargs: &str) {
+        self.bootargs = Some(bootargs.to_string());
+    }
+
+    fn gen_dtb(&self) -> VmmResult<Vec<u8>> {
+        let gic_phandle: u32 = 1;
+        let its_phandle: u32 = 1;
+
+        let initrd = if self.initrd_size != 0 {
+            Some((self.initrd_base, self.initrd_size))
+        } else {
+            None
+        };
+
+        let (mut fdt, root_node) = fdt_new(
+            (self.mem_base, self.mem_size),
+            self.num_cpus,
             gic_phandle,
-            0,
-            0,
-            FDT_IRQ_SPI,
-            spi,
-            FDT_IRQ_LEVEL_HI,
-        ]);
-        spi += 1;
-    }
-    fdt.property_array_u32("interrupt-map", &irq_map)?;
-    // Buses share the interrupt range, so only keep the slot number
-    let devfn_mask = pci_devfn(0x1f, 0) as u32;
-    fdt.property_array_u32("interrupt-map-mask", &[devfn_mask << 8, 0, 0, 0x7])?;
-    fdt.property_u32("#interrupt-cells", 1)?;
-    if kvmtool.has_its {
-        // kvmtool provides msi-parent which isn't valid. msi-map should be used:
-        fdt.property_array_u32("msi-map", &[0, its_phandle, 0, 0x10000])?;
-    }
-    fdt.end_node(pcie_node)?;
+            self.bootargs.as_deref(),
+            initrd,
+        )?;
 
-    if args.flash.is_some() {
-        // Does it need to be supported for realms? edk2 ignores it
-        todo!("add cfi-flash node");
+        // Add a node for the measurement log within reserved-memory
+        if let Some((log_base, log_size)) = self.log {
+            let resv_mem_node = fdt.begin_node("reserved-memory")?;
+            fdt.property_u32("#address-cells", 2)?;
+            fdt.property_u32("#size-cells", 2)?;
+            fdt.property_null("ranges")?;
+            let log_node = fdt_begin_node_addr(&mut fdt, "event-log", log_base)?;
+            fdt.property_string("compatible", "cc-event-log")?;
+            fdt.property_array_u64("reg", &[log_base, log_size])?;
+
+            fdt.end_node(log_node)?;
+            fdt.end_node(resv_mem_node)?;
+        }
+
+        let redist_size = (self.num_cpus as u64) * KVMTOOL_GIC_REDIST_SIZE;
+        let redist_base = KVMTOOL_GIC_DIST_BASE - redist_size;
+
+        let its_reg = if self.has_its {
+            let its_size = KVMTOOL_GIC_ITS_SIZE;
+            let its_base = redist_base - its_size;
+            Some([its_base, its_size])
+        } else {
+            None
+        };
+
+        fdt_add_gic(
+            &mut fdt,
+            &[
+                KVMTOOL_GIC_DIST_BASE,
+                KVMTOOL_GIC_DIST_SIZE,
+                redist_base,
+                redist_size,
+            ],
+            its_reg,
+            gic_phandle,
+            its_phandle,
+        )?;
+
+        fdt_add_timer(&mut fdt, &[13, 14, 11], FDT_IRQ_LEVEL_LO)?;
+        if self.pmu {
+            fdt_add_pmu(&mut fdt, 7)?;
+        }
+
+        let mut spi = KVMTOOL_SPI_UART;
+        for i in 0..4 {
+            let addr = KVMTOOL_UART_BASE + i as u64 * KVMTOOL_UART_STRIDE;
+            let serial_node = fdt_begin_node_addr(&mut fdt, "U6_16550A", addr)?;
+            fdt.property_string("compatible", "ns16550a")?;
+            fdt.property_array_u64("reg", &[addr, KVMTOOL_UART_SIZE])?;
+            fdt.property_array_u32("interrupts", &[FDT_IRQ_SPI, spi, FDT_IRQ_LEVEL_HI])?;
+            fdt.property_u32("clock-frequency", 1843200)?;
+            fdt.end_node(serial_node)?;
+            spi += 1
+        }
+
+        spi = KVMTOOL_SPI_VIRTIO_MMIO;
+        for i in 0..self.virtio_mmio_devices {
+            let size = KVMTOOL_VIRTIO_MMIO_SIZE;
+            let addr = KVMTOOL_VIRTIO_MMIO_BASE + i as u64 * size;
+            let mmio_node = fdt_begin_node_addr(&mut fdt, "virtio", addr)?;
+            fdt.property_string("compatible", "virtio,mmio")?;
+            fdt.property_array_u64("reg", &[addr, size])?;
+            fdt.property_null("dma-coherent")?;
+            fdt.property_array_u32(
+                "interrupts",
+                &[FDT_IRQ_SPI, spi, FDT_IRQ_EDGE_LO_HI],
+            )?;
+            fdt.end_node(mmio_node)?;
+            spi += 1;
+        }
+
+        let rtc_node = fdt_begin_node_addr(&mut fdt, "rtc", KVMTOOL_RTC_BASE)?;
+        fdt.property_string("compatible", "motorola,mc146818")?;
+        fdt.property_array_u64("reg", &[KVMTOOL_RTC_BASE, KVMTOOL_RTC_SIZE])?;
+        fdt.end_node(rtc_node)?;
+
+        let pcie_node = fdt_begin_node_addr(&mut fdt, "pci", KVMTOOL_PCI_CFG_BASE)?;
+        fdt.property_string("device_type", "pci")?;
+        fdt.property_u32("#address-cells", 3)?;
+        fdt.property_u32("#size-cells", 2)?;
+        fdt.property_null("dma-coherent")?;
+        fdt.property_array_u32("bus-range", &[0, 0])?;
+        fdt.property_string("compatible", "pci-host-ecam-generic")?;
+        fdt.property_array_u64("reg", &[KVMTOOL_PCI_CFG_BASE, KVMTOOL_PCI_CFG_SIZE])?;
+        fdt.property_array_u32(
+            "ranges",
+            &[
+                FDT_PCI_RANGE_IOPORT,
+                0,
+                0,
+                0,
+                lo(KVMTOOL_IOPORT_BASE),
+                0,
+                lo(KVMTOOL_IOPORT_SIZE),
+                FDT_PCI_RANGE_MMIO,
+                0,
+                lo(KVMTOOL_PCI_MMIO_BASE),
+                0,
+                lo(KVMTOOL_PCI_MMIO_BASE),
+                0,
+                lo(KVMTOOL_PCI_MMIO_SIZE),
+            ],
+        )?;
+        // Now the interrupts. SPIs 64-127 are allocated for PCI, one per slot
+        // number. Only pin #A is supported. Buses share the interrupts.
+        spi = KVMTOOL_SPI_PCI;
+        let mut irq_map: Vec<u32> = vec![];
+        for i in 0..32 {
+            let devfn = pci_devfn(i as u8, 0);
+            irq_map.extend_from_slice(&[
+                (devfn as u32) << 8,
+                0,
+                0,
+                1, // pin
+                gic_phandle,
+                0,
+                0,
+                FDT_IRQ_SPI,
+                spi,
+                FDT_IRQ_LEVEL_HI,
+            ]);
+            spi += 1;
+        }
+
+        fdt.property_array_u32("interrupt-map", &irq_map)?;
+        // Buses share the interrupt range, so only keep the slot number
+        let devfn_mask = pci_devfn(0x1f, 0) as u32;
+        fdt.property_array_u32("interrupt-map-mask", &[devfn_mask << 8, 0, 0, 0x7])?;
+        fdt.property_u32("#interrupt-cells", 1)?;
+        if self.has_its {
+            // kvmtool provides msi-parent which isn't valid. msi-map should be used:
+            fdt.property_array_u32("msi-map", &[0, its_phandle, 0, 0x10000])?;
+        }
+        fdt.end_node(pcie_node)?;
+
+        fdt.end_node(root_node)?;
+        resize_dtb(fdt.finish()?)
     }
-
-    fdt.end_node(root_node)?;
-    let mut bytes = fdt.finish()?;
-    if bytes.len() > FDT_SIZE {
-        bail!(
-            "generated DTB is too large ({} > {})",
-            bytes.len(),
-            FDT_SIZE
-        );
-    }
-    bytes.resize(FDT_SIZE, 0);
-
-    if let Some(filename) = output {
-        write_dtb(filename, &bytes)?;
-    }
-
-    let blob = VmmBlob::from_bytes(bytes, kvmtool.dtb_base)?;
-    realm.add_rim_blob(blob)?;
-
-    Ok(())
 }
 
 /// Create the Realm parameters, vCPUs and blobs that contribute to RIM and REM.
 ///
 pub fn build_params(args: &Args, lkvm_args: &KvmtoolArgs) -> Result<RealmConfig> {
     let mut realm = RealmConfig::from_args(args)?;
-    let mut kvmtool = KvmtoolParams {
-        mem_base: KVMTOOL_MEM_BASE,
-        ..Default::default()
-    };
+    let mut kvmtool = KvmtoolParams::new();
     let mut pc = 0;
 
     parse_cmdline(lkvm_args, &mut realm, &mut kvmtool)?;
 
+    let mut dtb_base = kvmtool.mem_base + kvmtool.mem_size;
+    dtb_base = min(dtb_base, FDT_DEFAULT_LIMIT);
+
+    if lkvm_args.measurement_log {
+        kvmtool.set_log_location(dtb_base - KVMTOOL_LOG_SIZE, KVMTOOL_LOG_SIZE);
+        dtb_base -= KVMTOOL_LOG_SIZE;
+    }
+
+    dtb_base -= FDT_ALIGN + FDT_SIZE as u64;
+    dtb_base = align_up(dtb_base, FDT_ALIGN);
+
     realm.add_ram(kvmtool.mem_base, kvmtool.mem_size)?;
+
+    kvmtool.set_pmu(realm.params.pmu.unwrap_or(false));
 
     if lkvm_args.kernel.is_some() {
         let Some(filename) = &args.kernel else {
@@ -560,12 +632,6 @@ pub fn build_params(args: &Args, lkvm_args: &KvmtoolArgs) -> Result<RealmConfig>
         kvmtool.use_kernel = true;
     }
 
-    let mut dtb_base =
-        kvmtool.mem_base + kvmtool.mem_size - (FDT_ALIGN + FDT_SIZE as u64);
-    dtb_base = align_up(dtb_base, FDT_ALIGN);
-    dtb_base = min(dtb_base, FDT_BASE);
-    kvmtool.dtb_base = dtb_base;
-
     if lkvm_args.initrd.is_some() {
         let Some(filename) = &args.initrd else {
             bail!("need initrd image");
@@ -575,8 +641,7 @@ pub fn build_params(args: &Args, lkvm_args: &KvmtoolArgs) -> Result<RealmConfig>
         let mut initrd = VmmBlob::from_file(filename, dtb_base)?;
         initrd.guest_start -= initrd.size + INITRD_ALIGN;
         initrd.guest_start = align_up(initrd.guest_start, INITRD_ALIGN);
-        kvmtool.initrd_base = initrd.guest_start;
-        kvmtool.initrd_size = initrd.size;
+        kvmtool.set_initrd(initrd.guest_start, initrd.size);
 
         // note that this one isn't page aligned
         realm.add_rim_blob(initrd)?;
@@ -593,10 +658,21 @@ pub fn build_params(args: &Args, lkvm_args: &KvmtoolArgs) -> Result<RealmConfig>
         kvmtool.use_firmware = true;
     }
 
+    if lkvm_args.flash.is_some() {
+        // Does it need to be supported for realms? edk2 ignores it.
+        // This would add a DTB node
+        todo!("cfi-flash not supported");
+    }
+
     realm.add_rec(pc, [dtb_base, 0, 0, 0, 0, 0, 0, 0])?;
 
+    if let Some((log_base, log_size)) = kvmtool.log {
+        realm.add_rim_unmeasured(log_base, log_size)?;
+    }
+
     // Now generate a DTB...
-    add_dtb(lkvm_args, &mut realm, &kvmtool, &args.output_dtb)
+    kvmtool
+        .add_dtb(&args.output_dtb, dtb_base, &mut realm)
         .context("while generating DTB")?;
 
     Ok(realm)

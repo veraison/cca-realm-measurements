@@ -217,6 +217,7 @@ if [ "$vmm" = "kvmtool" ]; then
         --network mode=user
         #--9p /mnt/shr0,shr0
         --dtb kvmtool-gen.dtb
+        --measurement-log
         --debug
     )
     if $use_initrd; then
