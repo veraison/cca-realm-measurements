@@ -22,6 +22,7 @@ byteorder = "1.5.0"
 num-derive = "0.3.3"
 num-traits = "0.2.19"
 thiserror = "1.0.64"
+memmap2 = "0.9.5"
 
 [lints.clippy]
 # Suggestions are less readable

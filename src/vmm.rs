@@ -1,3 +1,4 @@
+use memmap2::Mmap;
 use std::fs::File;
 use std::io::{Read, Write};
 
@@ -51,8 +52,8 @@ pub enum GicModel {
 pub struct BlobStorageFile {
     /// The filename
     pub name: String,
-    // content and len are intialized lazily, to avoid opening unused files
-    content: Option<Vec<u8>>,
+    // map and len are intialized lazily, to avoid opening unused files
+    map: Option<Mmap>,
     len: Option<u64>,
 }
 
@@ -78,20 +79,17 @@ impl BlobStorageFile {
     }
 
     fn read(&mut self) -> Result<&[u8]> {
-        if self.content.is_some() {
-            return Ok(self.content.as_ref().unwrap());
+        if self.map.is_some() {
+            return Ok(&self.map.as_ref().unwrap()[..]);
         }
-        let mut file = File::open(&self.name).map_err(|e| VmmError::File {
+        let file = File::open(&self.name).map_err(|e| VmmError::File {
             e,
             filename: self.name.to_string(),
         })?;
-        let mut content = vec![];
-        let len = file.read_to_end(&mut content)?;
-        if self.len.is_none() {
-            self.len = Some(len as u64);
-        }
-        self.content = Some(content);
-        Ok(self.content.as_ref().unwrap())
+        // SAFETY: possible UB with concurrent modifications
+        // https://docs.rs/memmap2/latest/memmap2/struct.Mmap.html#safety
+        self.map = Some(unsafe { Mmap::map(&file)? });
+        Ok(&self.map.as_ref().unwrap()[..])
     }
 }
 
@@ -100,7 +98,7 @@ impl Clone for BlobStorageFile {
         Self {
             name: self.name.clone(),
             len: self.len,
-            content: None,
+            map: None,
         }
     }
 }
@@ -120,8 +118,8 @@ impl BlobStorage {
     pub fn from_file(filename: &str) -> Self {
         BlobStorage::File(BlobStorageFile {
             name: filename.to_string(),
-            content: None,
             len: None,
+            map: None,
         })
     }
 
