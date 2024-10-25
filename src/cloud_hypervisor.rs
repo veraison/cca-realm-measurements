@@ -351,7 +351,7 @@ fn add_dtb(
         write_dtb(filename, &bytes)?;
     }
 
-    let blob = VmmBlob::from_bytes(bytes, CLOUDHV_DT_BASE)?;
+    let blob = VmmBlob::from_bytes(bytes, CLOUDHV_DT_BASE);
     realm.add_rim_blob(blob)?;
 
     Ok(())
@@ -389,13 +389,13 @@ pub fn build_params(args: &Args, cloudhv_args: &CloudHVArgs) -> Result<RealmConf
             bail!("need initrd image");
         };
 
-        let mut initrd = VmmBlob::from_file(filename, 0)?;
+        let mut initrd = VmmBlob::from_file(filename, 0);
         // Align on the host page size
-        let initrd_size = align_up(initrd.size, rmm::RMM_GRANULE);
+        let initrd_size = align_up(initrd.len()?, rmm::RMM_GRANULE);
         let initrd_start = CLOUDHV_MEM_START + cloudhv.mem_size - initrd_size;
         initrd.guest_start = initrd_start;
         cloudhv.initrd_start = initrd_start;
-        cloudhv.initrd_size = initrd.size;
+        cloudhv.initrd_size = initrd.len()?;
         realm.add_rim_blob(initrd)?;
     }
 

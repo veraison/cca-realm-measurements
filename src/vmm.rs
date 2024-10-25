@@ -1,5 +1,5 @@
 use std::fs::File;
-use std::io::{Read, Seek, Write};
+use std::io::{Read, Write};
 
 use crate::realm::RealmConfig;
 
@@ -46,75 +46,148 @@ pub enum GicModel {
     GICv4,
 }
 
+/// Blob stored as a file
+#[derive(Debug)]
+pub struct BlobStorageFile {
+    /// The filename
+    pub name: String,
+    // content and len are intialized lazily, to avoid opening unused files
+    content: Option<Vec<u8>>,
+    len: Option<u64>,
+}
+
+impl BlobStorageFile {
+    fn len(&mut self) -> Result<u64> {
+        if let Some(len) = self.len {
+            return Ok(len);
+        }
+
+        let file = File::open(&self.name).map_err(|e| VmmError::File {
+            e,
+            filename: self.name.to_string(),
+        })?;
+        self.len = Some(
+            file.metadata()
+                .map_err(|e| VmmError::File {
+                    e,
+                    filename: self.name.to_string(),
+                })?
+                .len(),
+        );
+        Ok(self.len.unwrap())
+    }
+
+    fn read(&mut self) -> Result<&[u8]> {
+        if self.content.is_some() {
+            return Ok(self.content.as_ref().unwrap());
+        }
+        let mut file = File::open(&self.name).map_err(|e| VmmError::File {
+            e,
+            filename: self.name.to_string(),
+        })?;
+        let mut content = vec![];
+        let len = file.read_to_end(&mut content)?;
+        if self.len.is_none() {
+            self.len = Some(len as u64);
+        }
+        self.content = Some(content);
+        Ok(self.content.as_ref().unwrap())
+    }
+}
+
+impl Clone for BlobStorageFile {
+    fn clone(&self) -> Self {
+        Self {
+            name: self.name.clone(),
+            len: self.len,
+            content: None,
+        }
+    }
+}
+
 /// The storage of an image loaded into the guest
+#[derive(Clone, Debug)]
 pub enum BlobStorage {
-    /// A file.
-    File(File),
-    /// A buffer.
+    /// A file
+    File(BlobStorageFile),
+    /// A buffer
     Bytes(Vec<u8>),
 }
 
+impl BlobStorage {
+    /// Return a new BlobStorage for the given file. The file will be opened
+    /// once its content is actually needed.
+    pub fn from_file(filename: &str) -> Self {
+        BlobStorage::File(BlobStorageFile {
+            name: filename.to_string(),
+            content: None,
+            len: None,
+        })
+    }
+
+    /// Size of the image (file size). Since file-based blobs are opened lazily,
+    /// this function may return an error.
+    #[allow(clippy::len_without_is_empty)]
+    pub fn len(&mut self) -> Result<u64> {
+        match self {
+            BlobStorage::File(f) => f.len(),
+            BlobStorage::Bytes(b) => Ok(b.len() as u64),
+        }
+    }
+
+    /// Return the content of this blob. Since file-based blobs are opened
+    /// lazily, this function may return an error.
+    pub fn read(&mut self) -> Result<&[u8]> {
+        match self {
+            BlobStorage::File(f) => f.read(),
+            BlobStorage::Bytes(b) => Ok(b),
+        }
+    }
+}
+
 /// An image loaded into the guest
+#[derive(Debug)]
 pub struct VmmBlob {
-    /// Filename of the image (FIXME)
-    pub filename: Option<String>,
     /// Base address of the image in the guest
     pub guest_start: GuestAddress,
     /// Size loaded into memory, including zero-initialized data.
     /// If it is None, use the file size.
     pub load_size: Option<u64>,
-    /// Size of the image (file size)
-    pub size: u64,
-    /// The image content
-    pub data: BlobStorage,
+    /// Blob content
+    pub storage: BlobStorage,
 }
 
 impl VmmBlob {
-    /// Load file into a blob object
-    pub fn from_file(filename: &str, guest_start: GuestAddress) -> Result<VmmBlob> {
-        let filename = String::from(filename);
-
-        let file = File::open(&filename).map_err(|e| VmmError::File {
-            e,
-            filename: filename.clone(),
-        })?;
-
-        Ok(VmmBlob {
+    /// Create a new blob
+    pub fn new(storage: BlobStorage, guest_start: GuestAddress) -> Self {
+        Self {
             guest_start,
-            size: file
-                .metadata()
-                .map_err(|e| VmmError::File {
-                    e,
-                    filename: filename.clone(),
-                })?
-                .len(),
             load_size: None,
-            filename: Some(filename),
-            data: BlobStorage::File(file),
-        })
+            storage,
+        }
+    }
+
+    /// Load file into a blob object
+    pub fn from_file(filename: &str, guest_start: GuestAddress) -> Self {
+        Self::new(BlobStorage::from_file(filename), guest_start)
     }
 
     /// Load bytes into a blob object
-    pub fn from_bytes(bytes: Vec<u8>, guest_start: GuestAddress) -> Result<VmmBlob> {
-        Ok(VmmBlob {
-            guest_start,
-            size: bytes.len() as u64,
-            load_size: None,
-            filename: None,
-            data: BlobStorage::Bytes(bytes),
-        })
+    pub fn from_bytes(bytes: Vec<u8>, guest_start: GuestAddress) -> Self {
+        Self::new(BlobStorage::Bytes(bytes), guest_start)
     }
 
-    /// read_to_end() with some context in case of error
-    // TODO: avoid large copies
-    pub fn read_to_end_ctx(&mut self, buf: &mut Vec<u8>) -> Result<usize> {
-        match &mut self.data {
-            BlobStorage::File(f) => f.read_to_end(buf).map_err(|e| VmmError::File {
-                filename: self.filename.as_ref().unwrap().to_string(),
-                e,
-            }),
-            BlobStorage::Bytes(b) => b.as_slice().read_to_end(buf).map_err(VmmError::IO),
-        }
+    /// Return the content of this blob. Since file-based blobs are opened
+    /// lazily, this function may return an error.
+    pub fn read(&mut self) -> Result<&[u8]> {
+        self.storage.read()
+    }
+
+    /// Size of this blob. Since file-based blobs are opened lazily, this
+    /// function may return an error.
+    #[allow(clippy::len_without_is_empty)]
+    pub fn len(&mut self) -> Result<u64> {
+        self.storage.len()
     }
 }
 
@@ -172,14 +245,13 @@ fn read_hdr_u64(file: &mut File) -> std::io::Result<u64> {
 ///   adds an offset to this address.
 ///
 pub fn load_kernel(filename: &str, guest_start: GuestAddress) -> Result<VmmBlob> {
-    let mut blob = VmmBlob::from_file(filename, guest_start)?;
+    let mut blob = VmmBlob::from_file(filename, guest_start);
 
-    let file = match &mut blob.data {
-        BlobStorage::File(f) => f,
-        _ => unreachable!(),
-    };
-
-    let header = LinuxArm64Header::read(file).map_err(|e| VmmError::File {
+    let mut file = File::open(filename).map_err(|e| VmmError::File {
+        filename: filename.to_string(),
+        e,
+    })?;
+    let header = LinuxArm64Header::read(&mut file).map_err(|e| VmmError::File {
         filename: filename.to_string(),
         e,
     })?;
@@ -193,10 +265,6 @@ pub fn load_kernel(filename: &str, guest_start: GuestAddress) -> Result<VmmBlob>
     blob.load_size = Some(header.load_size);
     blob.guest_start += header.text_offset;
 
-    file.rewind().map_err(|e| VmmError::File {
-        e,
-        filename: filename.to_string(),
-    })?;
     Ok(blob)
 }
 
@@ -245,10 +313,57 @@ pub trait DTBGenerator {
             write_dtb(filename, &dtb)?;
         }
 
-        let blob = VmmBlob::from_bytes(dtb, base)?;
+        let blob = VmmBlob::from_bytes(dtb, base);
         realm
             .add_rim_blob(blob)
             .map_err(|e| VmmError::Realm(e.to_string()))?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_blob_storage() {
+        let mut b = BlobStorage::from_file("testdata/nonexistent-file.txt");
+        let e = b.len();
+        assert!(e.is_err());
+        // Test our error type while where here
+        let VmmError::File { e, filename } = e.as_ref().unwrap_err() else {
+            panic!("invalid error, got {e:?}");
+        };
+        assert!(e.kind() == std::io::ErrorKind::NotFound);
+        assert_eq!(filename, "testdata/nonexistent-file.txt");
+        assert!(b.read().is_err());
+
+        let mut b = BlobStorage::from_file("testdata/some-file.txt");
+        let s = "This file is used to test file handling code.\n".as_bytes();
+        assert_eq!(b.len().unwrap() as usize, s.len());
+        assert_eq!(b.read().unwrap(), s);
+
+        let mut b = BlobStorage::Bytes(s.to_vec());
+        assert_eq!(b.len().unwrap() as usize, s.len());
+        assert_eq!(b.read().unwrap(), s);
+
+        let mut b = BlobStorage::Bytes(vec![]);
+        assert_eq!(b.len().unwrap(), 0);
+        assert_eq!(b.read().unwrap(), &[0; 0]);
+    }
+
+    #[test]
+    fn test_linux_kernel() {
+        let b = load_kernel("testdata/some-file.txt", 0x80000000);
+        assert!(b.is_err());
+        let VmmError::File { e, filename: _ } = b.as_ref().unwrap_err() else {
+            panic!("invalid error, got {b:?}");
+        };
+        assert_eq!(e.kind(), std::io::ErrorKind::UnexpectedEof);
+
+        let mut b = load_kernel("testdata/linux-header.bin", 0x80000000).unwrap();
+        assert_eq!(b.len().unwrap(), 64);
+        assert_eq!(b.load_size.unwrap(), 0x2c80000);
+        assert_eq!(b.guest_start, 0x80000000);
     }
 }

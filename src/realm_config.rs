@@ -159,7 +159,7 @@ impl RealmConfig {
         }
 
         for (addr, blob) in &mut self.rim_blobs {
-            realm.rim_data_create(*addr, blob)?;
+            realm.rim_data_create(*addr, &mut blob.storage)?;
         }
 
         if let Some(rec) = &self.rec {
@@ -244,9 +244,8 @@ impl RealmConfig {
         let mut realm = self.compute_rim()?;
 
         for (index, blob) in &mut self.rem_blobs {
-            let mut content = vec![];
-            blob.read_to_end_ctx(&mut content)?;
-            let hash = realm.measure_bytes(&content)?;
+            let content = blob.read()?;
+            let hash = realm.measure_bytes(content)?;
             realm.rem_extend(*index, &hash)?;
         }
 

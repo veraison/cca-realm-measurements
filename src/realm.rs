@@ -6,7 +6,7 @@ use base64::{engine::general_purpose::STANDARD as base64_standard, Engine as _};
 use openssl::sha;
 
 use crate::utils::*;
-use crate::vmm::{VmmBlob, VmmError};
+use crate::vmm::{BlobStorage, VmmError};
 use rmm::{self, RmiHashAlgorithm, RmmError, RmmRealmMeasurement, RMM_GRANULE};
 
 pub use crate::realm_config::RealmConfig;
@@ -330,10 +330,10 @@ impl Realm {
     /// RMI_DATA_CREATE with the RMI_MEASURE_CONTENT flag set: one for each
     /// granule in the blob.
     ///
-    pub fn rim_data_create(&mut self, addr: u64, blob: &mut VmmBlob) -> Result<u64> {
+    pub fn rim_data_create(&mut self, addr: u64, blob: &mut BlobStorage) -> Result<u64> {
         const GRANULE: usize = RMM_GRANULE as usize;
-        let mut content = vec![];
-        let mut data_size = blob.read_to_end_ctx(&mut content)?;
+        let mut content = blob.read()?.to_vec();
+        let mut data_size = content.len();
 
         // Align to granule size
         let aligned_addr = align_down(addr, RMM_GRANULE);

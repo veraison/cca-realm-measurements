@@ -574,9 +574,9 @@ pub fn build_params(args: &Args, qemu_args: &QemuArgs) -> Result<RealmConfig> {
             bail!("need kernel image");
         };
 
-        let kernel =
+        let mut kernel =
             load_kernel(filename, QEMU_MEM_BASE).with_context(|| filename.to_string())?;
-        let kernel_load_size = kernel.load_size.unwrap_or(kernel.size);
+        let kernel_load_size = kernel.load_size.unwrap_or(kernel.len()?);
 
         qemu.kernel_start = kernel.guest_start;
 
@@ -599,8 +599,8 @@ pub fn build_params(args: &Args, qemu_args: &QemuArgs) -> Result<RealmConfig> {
                 bail!("need initrd image");
             };
 
-            let initrd = VmmBlob::from_file(filename, initrd_start)?;
-            initrd_size = initrd.size;
+            let mut initrd = VmmBlob::from_file(filename, initrd_start);
+            initrd_size = initrd.len()?;
             qemu.set_initrd(initrd_start, initrd_size);
             if use_firmware {
                 realm.add_rem_blob(0, initrd)?;
@@ -621,7 +621,7 @@ pub fn build_params(args: &Args, qemu_args: &QemuArgs) -> Result<RealmConfig> {
             bail!("need firmware image");
         };
 
-        let firmware = VmmBlob::from_file(filename, 0)?;
+        let firmware = VmmBlob::from_file(filename, 0);
         realm.add_rim_blob(firmware)?;
     }
 

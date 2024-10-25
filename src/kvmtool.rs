@@ -638,10 +638,10 @@ pub fn build_params(args: &Args, lkvm_args: &KvmtoolArgs) -> Result<RealmConfig>
         };
 
         const INITRD_ALIGN: GuestAddress = 4;
-        let mut initrd = VmmBlob::from_file(filename, dtb_base)?;
-        initrd.guest_start -= initrd.size + INITRD_ALIGN;
+        let mut initrd = VmmBlob::from_file(filename, dtb_base);
+        initrd.guest_start -= initrd.len()? + INITRD_ALIGN;
         initrd.guest_start = align_up(initrd.guest_start, INITRD_ALIGN);
-        kvmtool.set_initrd(initrd.guest_start, initrd.size);
+        kvmtool.set_initrd(initrd.guest_start, initrd.len()?);
 
         // note that this one isn't page aligned
         realm.add_rim_blob(initrd)?;
@@ -653,7 +653,7 @@ pub fn build_params(args: &Args, lkvm_args: &KvmtoolArgs) -> Result<RealmConfig>
         };
 
         pc = kvmtool.firmware_base;
-        let firmware = VmmBlob::from_file(filename, kvmtool.firmware_base)?;
+        let firmware = VmmBlob::from_file(filename, kvmtool.firmware_base);
         realm.add_rim_blob(firmware)?;
         kvmtool.use_firmware = true;
     }
