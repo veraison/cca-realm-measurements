@@ -18,7 +18,7 @@ openssl = "0.10.63"
 rmm = { path = "rmm/" }
 serde = "1.0.197"
 toml = "0.8.10"
-vm-fdt = "0.3.0"
+vm-fdt = { git = "https://github.com/jpbrucker/vm-fdt.git" }
 serde_json = { version = "1.0.114" }
 base64 = "0.22.1"
 log = "0.4.22"

@@ -3,6 +3,7 @@ use std::fmt::{self, Debug};
 use std::fs::File;
 use std::io::{Read, Write};
 
+use crate::dtb_surgeon;
 use crate::realm::RealmConfig;
 
 #[derive(Debug, thiserror::Error)]
@@ -24,6 +25,9 @@ pub enum VmmError {
 
     #[error("FDT")]
     Fdt(#[from] vm_fdt::Error),
+
+    #[error("DTB")]
+    Dtb(#[from] dtb_surgeon::DTBError),
 
     #[error("unimplemented: {0}")]
     Unimplemented(String),
@@ -329,6 +333,13 @@ pub trait DTBGenerator {
             .add_rim_blob(blob)
             .map_err(|e| VmmError::Realm(e.to_string()))?;
         Ok(())
+    }
+
+    /// Set a DTB template that can be modified with a DTBSurgeon. The
+    /// DTBGenerator implementation does not have to implement this. It may only
+    /// support generating a DTB from scratch.
+    fn set_template(&mut self, _template: Vec<u8>) -> Result<()> {
+        Err(VmmError::Unimplemented("DTB surgery".to_string()))
     }
 }
 

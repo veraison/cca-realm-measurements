@@ -4,6 +4,7 @@ use clap::Parser;
 
 mod cloud_hypervisor;
 mod command_line;
+mod dtb_surgeon;
 mod fdt;
 mod kvmtool;
 mod qemu;

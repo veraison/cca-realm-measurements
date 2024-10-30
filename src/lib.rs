@@ -89,6 +89,8 @@ mod realm_config;
 mod realm_params;
 
 mod command_line;
+/// FDT surgery. Experimental and unstable!
+pub mod dtb_surgeon;
 mod fdt;
 mod utils;
 
