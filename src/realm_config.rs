@@ -24,6 +24,8 @@ type Result<T> = core::result::Result<T, RealmError>;
 pub struct RealmConfig {
     /// Sorted list of blobs measured into the RIM
     pub rim_blobs: BTreeMap<GuestAddress, VmmBlob>,
+    // List of unmeasured data regions (address, size)
+    rim_unmeasured: Vec<(GuestAddress, u64)>,
     /// List of blobs measured into the REM
     pub rem_blobs: Vec<(usize, VmmBlob)>,
     pub ram_ranges: BTreeMap<GuestAddress, u64>,
@@ -101,6 +103,13 @@ impl RealmConfig {
         Ok(())
     }
 
+    /// Add a DATA region, whose creations is measured into the Realm Initial
+    /// Measurement, but whose content isn't.
+    pub fn add_rim_unmeasured(&mut self, base: GuestAddress, size: u64) -> Result<()> {
+        self.rim_unmeasured.push((base, size));
+        Ok(())
+    }
+
     /// Add binary file to be measured as part of the Realm Extensible
     /// Measurement.
     pub fn add_rem_blob(&mut self, index: usize, blob: VmmBlob) -> Result<()> {
@@ -124,7 +133,8 @@ impl RealmConfig {
     }
 
     /// Compute the RIM using a predefined order: first init RIPAS of the whole
-    /// guest RAM, then data granules in ascending order, then the RECs.
+    /// guest RAM, then data granules in ascending order, then the RECs, then
+    /// unmeasured data (log).
     fn compute_rim(&mut self) -> Result<Realm> {
         let mut realm = Realm::default();
 
@@ -144,6 +154,10 @@ impl RealmConfig {
             realm.rim_rec_create(rec)?;
         } else {
             log::debug!("Missing REC");
+        }
+
+        for (addr, size) in &self.rim_unmeasured {
+            realm.rim_data_create_unmeasured(*addr, *size)?;
         }
 
         Ok(realm)
