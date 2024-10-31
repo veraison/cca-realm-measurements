@@ -169,7 +169,9 @@ declare -a CMD
 declare -a KPARAMS
 
 if $use_virtconsole; then
-    KPARAMS+=(console=hvc0)
+    if [ "$vmm" != "kvmtool" ]; then # FIXME: unless we generate the DTB
+        KPARAMS+=(console=hvc0)
+    fi
 else
     # earlycon needs to be accessed via physical address, which unfortunately
     # depends on the IPA size :(
@@ -216,7 +218,7 @@ if [ "$vmm" = "kvmtool" ]; then
         --pmu
         --network mode=user
         #--9p /mnt/shr0,shr0
-        --dtb kvmtool-gen.dtb
+        #--dtb kvmtool-gen.dtb
         --measurement-log
         --debug
     )
@@ -226,7 +228,9 @@ if [ "$vmm" = "kvmtool" ]; then
         CMD+=(-d "$RUN_ROOTFS")
     fi
 
-    APPEND=(-p "${KPARAMS[*]}")
+    if [ -n "${KPARAMS[*]}" ]; then
+        APPEND=(-p "${KPARAMS[*]}")
+    fi
 elif [ "$vmm" = "cloud-hv" ]; then
     OUTPUT_DTB="$OUTPUT_DTB_DIR/cloudhv-gen.dtb"
     EDK2="$EDK2_DIR/Build/ArmVirtCloudHv-AARCH64/DEBUG_GCC5/FV/QEMU_EFI.fd"

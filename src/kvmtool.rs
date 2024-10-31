@@ -3,10 +3,13 @@ use std::cmp::{max, min};
 use anyhow::{bail, Context, Result};
 
 use crate::command_line::*;
+use crate::dtb_surgeon::*;
 use crate::fdt::*;
 use crate::realm_config::*;
 use crate::utils::*;
 use crate::vmm::*;
+
+use vm_fdt::FdtWriter;
 
 const KVMTOOL_IOPORT_BASE: u64 = 0x00000000;
 const KVMTOOL_IOPORT_SIZE: u64 = 0x00010000;
@@ -33,6 +36,9 @@ const KVMTOOL_LOG_SIZE: u64 = 64 * KIB;
 const KVMTOOL_SPI_UART: u32 = 0;
 const KVMTOOL_SPI_VIRTIO_MMIO: u32 = 4;
 const KVMTOOL_SPI_PCI: u32 = 64;
+
+const KVMTOOL_GIC_PHANDLE: u32 = 1;
+const KVMTOOL_ITS_PHANDLE: u32 = 2;
 
 const FDT_DEFAULT_LIMIT: GuestAddress = KVMTOOL_MEM_BASE + 256 * MIB;
 const FDT_ALIGN: GuestAddress = 2 * MIB;
@@ -203,6 +209,8 @@ pub struct KvmtoolParams {
     use_kernel: bool,
     use_firmware: bool,
     pmu: bool,
+
+    dtb_template: Option<Vec<u8>>,
 
     /* base, size */
     log: Option<(GuestAddress, u64)>,
@@ -400,6 +408,104 @@ fn parse_cmdline(
     Ok(())
 }
 
+impl DTBSurgeon for KvmtoolParams {
+    fn handle_node(&self, fdt: &mut FdtWriter, node_name: &str) -> DTBResult<bool> {
+        match node_name {
+            "cpus" => {
+                let cpus_node = fdt.begin_node("cpus")?;
+                fdt.property_u32("#address-cells", 1)?;
+                fdt.property_u32("#size-cells", 0)?;
+                for i in 0..self.num_cpus {
+                    let node_name = format!("cpu@{i}");
+                    let cpu_node = fdt.begin_node(&node_name)?;
+                    fdt.property_string("device_type", "cpu")?;
+                    fdt.property_string("compatible", "arm,arm-v8")?;
+                    fdt.property_string("enable-method", "psci")?;
+                    fdt.property_u32("reg", i as u32)?;
+                    fdt.end_node(cpu_node)?;
+                }
+                fdt.end_node(cpus_node)?;
+                Ok(true)
+            }
+            "intc" => {
+                // The redistributor size depends on the number of vCPUs. Also
+                // the ITS may be disabled.
+                let redist_size = (self.num_cpus as u64) * KVMTOOL_GIC_REDIST_SIZE;
+                let redist_base = KVMTOOL_GIC_DIST_BASE - redist_size;
+
+                let gic_reg = &[
+                    KVMTOOL_GIC_DIST_BASE,
+                    KVMTOOL_GIC_DIST_SIZE,
+                    redist_base,
+                    redist_size,
+                ];
+
+                let gic_node = fdt.begin_node("intc")?;
+                fdt.property_string("compatible", "arm,gic-v3")?;
+                fdt.property_u32("#interrupt-cells", 3)?;
+                fdt.property_null("interrupt-controller")?;
+                fdt.property_array_u64("reg", gic_reg)?;
+                fdt.property_phandle(KVMTOOL_GIC_PHANDLE)?;
+                fdt.property_u32("#address-cells", 2)?;
+                fdt.property_u32("#size-cells", 2)?;
+                fdt.property_null("ranges")?;
+
+                if self.has_its {
+                    let its_size = KVMTOOL_GIC_ITS_SIZE;
+                    let its_base = redist_base - its_size;
+
+                    let its_node = fdt.begin_node("msic")?;
+                    fdt.property_string("compatible", "arm,gic-v3-its")?;
+                    fdt.property_null("msi-controller")?;
+                    fdt.property_phandle(KVMTOOL_ITS_PHANDLE)?;
+                    fdt.property_array_u64("reg", &[its_base, its_size])?;
+                    fdt.end_node(its_node)?;
+                }
+                fdt.end_node(gic_node)?;
+                Ok(true)
+            }
+            "reserved-memory" => {
+                let Some((log_base, log_size)) = self.log else {
+                    return Ok(true);
+                };
+                // Add a node for the measurement log within reserved-memory
+                let resv_mem_node = fdt.begin_node("reserved-memory")?;
+                fdt.property_u32("#address-cells", 2)?;
+                fdt.property_u32("#size-cells", 2)?;
+                fdt.property_null("ranges")?;
+                let log_node = fdt_begin_node_addr(fdt, "event-log", log_base)?;
+                fdt.property_string("compatible", "cc-event-log")?;
+                fdt.property_array_u64("reg", &[log_base, log_size])?;
+
+                fdt.end_node(log_node)?;
+                fdt.end_node(resv_mem_node)?;
+                Ok(true)
+            }
+            "pmu" => {
+                // Drop the node if PMU is disabled. We assume the template is
+                // generated with PMU enabled. Luckily the property strings are
+                // used by other nodes so the strings table doesn't change.
+                Ok(!self.pmu)
+            }
+            // TODO: virtio-mmio: dynamic SPIs and number of devices. Need to be
+            // inserted somewhere within the DTB. Before the RTC I think?
+            _ => Ok(false),
+        }
+    }
+
+    fn mem(&self) -> (u64, u64) {
+        (self.mem_base, self.mem_size)
+    }
+
+    fn initrd(&self) -> Option<(u64, u64)> {
+        Some((self.initrd_base, self.initrd_size))
+    }
+
+    fn bootargs(&self) -> Option<&str> {
+        self.bootargs.as_deref()
+    }
+}
+
 fn resize_dtb(mut dtb: Vec<u8>) -> VmmResult<Vec<u8>> {
     if dtb.len() > FDT_SIZE {
         return Err(VmmError::Other(format!(
@@ -438,12 +544,23 @@ impl DTBGenerator for KvmtoolParams {
     }
 
     fn set_bootargs(&mut self, bootargs: &str) {
-        self.bootargs = Some(bootargs.to_string());
+        // FIXME: kvmtool generates a command-line depending on
+        // arguments. We need to try to reproduce it more
+        // accurately. But really, we should remove this from
+        // kvmtool because it's a friggin pain to reproduce in black
+        // box mode.)
+        self.bootargs = Some(" console=hvc0 root=/dev/vda rw ".to_string() + bootargs);
+    }
+
+    fn set_template(&mut self, template: Vec<u8>) -> VmmResult<()> {
+        self.dtb_template = Some(template);
+        Ok(())
     }
 
     fn gen_dtb(&self) -> VmmResult<Vec<u8>> {
-        let gic_phandle: u32 = 1;
-        let its_phandle: u32 = 1;
+        if let Some(input) = &self.dtb_template {
+            return resize_dtb(self.update_dtb(input)?);
+        }
 
         let initrd = if self.initrd_size != 0 {
             Some((self.initrd_base, self.initrd_size))
@@ -452,50 +569,15 @@ impl DTBGenerator for KvmtoolParams {
         };
 
         let (mut fdt, root_node) = fdt_new(
-            (self.mem_base, self.mem_size),
+            self.mem(),
             self.num_cpus,
-            gic_phandle,
+            KVMTOOL_GIC_PHANDLE,
             self.bootargs.as_deref(),
             initrd,
         )?;
 
-        // Add a node for the measurement log within reserved-memory
-        if let Some((log_base, log_size)) = self.log {
-            let resv_mem_node = fdt.begin_node("reserved-memory")?;
-            fdt.property_u32("#address-cells", 2)?;
-            fdt.property_u32("#size-cells", 2)?;
-            fdt.property_null("ranges")?;
-            let log_node = fdt_begin_node_addr(&mut fdt, "event-log", log_base)?;
-            fdt.property_string("compatible", "cc-event-log")?;
-            fdt.property_array_u64("reg", &[log_base, log_size])?;
-
-            fdt.end_node(log_node)?;
-            fdt.end_node(resv_mem_node)?;
-        }
-
-        let redist_size = (self.num_cpus as u64) * KVMTOOL_GIC_REDIST_SIZE;
-        let redist_base = KVMTOOL_GIC_DIST_BASE - redist_size;
-
-        let its_reg = if self.has_its {
-            let its_size = KVMTOOL_GIC_ITS_SIZE;
-            let its_base = redist_base - its_size;
-            Some([its_base, its_size])
-        } else {
-            None
-        };
-
-        fdt_add_gic(
-            &mut fdt,
-            &[
-                KVMTOOL_GIC_DIST_BASE,
-                KVMTOOL_GIC_DIST_SIZE,
-                redist_base,
-                redist_size,
-            ],
-            its_reg,
-            gic_phandle,
-            its_phandle,
-        )?;
+        self.handle_node(&mut fdt, "intc")?;
+        self.handle_node(&mut fdt, "reserved-memory")?;
 
         fdt_add_timer(&mut fdt, &[13, 14, 11], FDT_IRQ_LEVEL_LO)?;
         if self.pmu {
@@ -573,7 +655,7 @@ impl DTBGenerator for KvmtoolParams {
                 0,
                 0,
                 1, // pin
-                gic_phandle,
+                KVMTOOL_GIC_PHANDLE,
                 0,
                 0,
                 FDT_IRQ_SPI,
@@ -590,7 +672,7 @@ impl DTBGenerator for KvmtoolParams {
         fdt.property_u32("#interrupt-cells", 1)?;
         if self.has_its {
             // kvmtool provides msi-parent which isn't valid. msi-map should be used:
-            fdt.property_array_u32("msi-map", &[0, its_phandle, 0, 0x10000])?;
+            fdt.property_array_u32("msi-map", &[0, KVMTOOL_ITS_PHANDLE, 0, 0x10000])?;
         }
         fdt.end_node(pcie_node)?;
 
@@ -673,6 +755,9 @@ pub fn build_params(args: &Args, lkvm_args: &KvmtoolArgs) -> Result<RealmConfig>
     }
 
     // Now generate a DTB...
+    if let Some(input_dtb) = &args.input_dtb {
+        kvmtool.set_template(std::fs::read(input_dtb)?)?;
+    }
     kvmtool
         .add_dtb(&args.output_dtb, dtb_base, &mut realm)
         .context("while generating DTB")?;
