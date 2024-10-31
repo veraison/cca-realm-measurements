@@ -26,6 +26,10 @@ pub struct Args {
     #[arg(long, value_name = "file")]
     pub output_dtb: Option<String>,
 
+    /// Input DTB template
+    #[arg(long, value_name = "file")]
+    pub input_dtb: Option<String>,
+
     /// Do not generate Realm token (only validate parameters and generate DTB)
     #[arg(long)]
     pub no_token: bool,
