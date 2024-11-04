@@ -1,7 +1,7 @@
 Realm Virtual Machine specification
 ===================================
 
-Version 0.2
+Version 0.3
 
 This document specifies the format and construction of a Realm Virtual Machine
 (VM) for Arm CCA[^CCA-intro]. The specification only covers aspects of a VM
@@ -11,47 +11,50 @@ reconstruct the Realm Token and attest the initial state of the Realm.
 The hypervisor runs at EL2/EL1 and communicates with RMM[^RMM], while the
 Virtual Machine Monitor (VMM) runs at EL0 and communicates with the hypervisor.
 Together they prepare and manage the VM. The amount of work done by either
-component depends on the hypervisor, but the combination of the two follows
+component depends on the hypervisor type, but the combination of the two follows
 these rules:
 
-* The hypervisor MUST use optimal block sizes when calling RMI_RTT_CREATE and
+* The hypervisor SHOULD use optimal block sizes when calling RMI_RTT_CREATE and
   RMI_RTT_INIT_RIPAS to initialize the protected IPA space of the Realm. For
   example, part of an IPA range that can be described with a level 2 Block
-  descriptor MUST NOT be described with level 3 Page descriptors; part of an
-  IPA range that can be described with a level 1 Block descriptor MUST NOT be
+  descriptor SHOULD NOT be described with level 3 Page descriptors; part of an
+  IPA range that can be described with a level 1 Block descriptor SHOULD NOT be
   described with level 2 Block or level 3 Page descriptors.
 
   Rationale: the number of RMI_RTT_INIT_RIPAS calls needed to cover an IPA
     range depends on the translation table layout.
 
-* The hypervisor MUST use the maximum possible number of concatenated tables at
+* The hypervisor SHOULD use the maximum possible number of concatenated tables at
   the RTT starting level.
 
   Rationale: allows to calculate the number of RTT levels, and predictably
     reconstruct the RMI_RTT_INIT_RIPAS calls.
 
 * The Realm Personalization Value (RPV) is a 512-bit number differentiating VMs
-  that otherwise have the same RIM. When the user doesn't provide a RPV, the
-  VMM or hypervisor MUST write it as zeroes in the RmiRealmParams.rpv buffer.
-  Otherwise, they MUST write it as provided by the user, most significant byte
+  that otherwise have the same RIM. When the user doesn't provide a RPV, the VMM
+  or hypervisor SHOULD write it as zeroes in the RmiRealmParams.rpv buffer.
+  Otherwise, they SHOULD write it as provided by the user, most significant byte
   first, and pad it with zeroes on the right if the user provided fewer than 64
   bytes.
 
-* The VMM and hypervisor MUST call RMI_RTT_INIT_RIPAS and RMI_DATA_CREATE in
-  ascending IPA order. Ranges described by RMI_RTT_INIT_RIPAS and
-  RMI_DATA_CREATE MUST NOT overlap.
+* The VMM and hypervisor SHOULD call RMI_RTT_INIT_RIPAS first. They SHOULD set
+  the IPA state of all guest RAM as `RAM`.
 
-* The VMM and hypervisor MUST call RMI_REC_CREATE after having initialized
-  guest memory with RMI_DATA_CREATE and RMI_RTT_INIT_RIPAS.
+* RMI_DATA_CREATE calls with flag `measure == RMI_MEASURE_CONTENT` SHOULD follow
+  RMI_RTT_INIT_RIPAS. Ranges described by RMI_RTT_INIT_RIPAS and RMI_DATA_CREATE
+  MAY overlap.
 
-* The VMM and hypervisor SHOULD call RMI_DATA_CREATE with flags.measure ==
-  RMI_MEASURE_CONTENT.
+* The VMM and hypervisor SHOULD issue RMI_DATA_CREATE calls in ascending IPA
+  order.
 
-* The VMM MUST only make the first REC runnable. The other RECs are enabled
+* RMI_REC_CREATE calls SHOULD follow RMI_DATA_CREATE calls whose flag `measure`
+  is `RMI_MEASURE_CONTENT`.
+
+* The VMM SHOULD only make the first REC runnable. The other RECs are enabled
   with PSCI and are not part of the initial measurement.
 
-* The VMM SHOULD set the IPA state of all guest RAM as RIPAS_RAM before
-  initializing data granules.
+* RMI_DATA_CREATE calls with `flags.measure == RMI_NO_MEASURE_CONTENT`, if any,
+  SHOULD follow RMI_REC_CREATE calls.
 
 * The VMM SHOULD set the IPA state of all guest RAM as RIPAS_RAM before
   initializing data granules.
@@ -82,9 +85,14 @@ Kvmtool
   Note: The offset for a Linux kernel is given in the Image header
     [^Linux-boot].
 
-* The DTB MUST have a fixed size of 64kB, padded with zeros. The DTB MUST be
-  placed at address 0x8fe00000, or when there is less than 256MB of RAM, at the
-  address 2MB from the end of RAM, aligned on 2MB.
+* When a measurement log is enabled, it must be placed just before address
+  0x90000000, or when there is less than 256MB or RAM, at the end of RAM.
+
+* The DTB MUST have a fixed size of 64kB, padded with zeros. When a measurement
+  log is enabled, the DTB MUST be placed just before the measurement log, at an
+  address aligned on 2MB. Otherwise the DTB MUST be placed at address
+  0x8fe00000, or when there is less than 256MB of RAM, at the address 2MB from
+  the end of RAM, aligned on 2MB.
 
 * The initrd, when present, MUST be placed before the DTB, at the highest
   possible address aligned on 4 bytes.
