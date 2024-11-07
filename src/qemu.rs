@@ -48,19 +48,40 @@ const QEMU_SPI_MMIO: u32 = 16;
 
 const QEMU_PPI_PMU: u32 = 7;
 
-struct QemuParams {
+const QEMU_DTB_SIZE: u64 = 1024 * KIB;
+const QEMU_LOG_SIZE: u64 = 64 * KIB;
+
+/// QEMU configuration
+#[derive(Default)]
+pub struct QemuParams {
     num_cpus: usize,
     mem_size: u64,
     // Kernel command line
     bootargs: Option<String>,
     // Guest address
     kernel_start: u64,
-    initrd_start: u64,
-    initrd_size: u64,
-    dtb_start: u64,
+    initrd: Option<(u64, u64)>,
+    log: Option<(u64, u64)>,
+    has_pmu: bool,
     has_its: bool,
     has_acpi: bool,
+    has_measurement_log: bool,
     gic_version: GicModel,
+}
+
+impl QemuParams {
+    /// Create a new QemuParams instance
+    pub fn new() -> Self {
+        Self {
+            num_cpus: 1,
+            mem_size: 128 * MIB,
+            // On recent virt machines, ITS is enabled by default
+            has_its: true,
+            has_acpi: true,
+            gic_version: GicModel::GICv3,
+            ..Default::default()
+        }
+    }
 }
 
 #[derive(Debug, clap::Args)]
@@ -122,7 +143,11 @@ fn parse_smp(raw_args: &mut RawArgs) -> Result<usize> {
 }
 
 // Parse rme-guest object
-fn parse_object(raw_args: &mut RawArgs, realm: &mut RealmConfig) -> Result<()> {
+fn parse_object(
+    raw_args: &mut RawArgs,
+    realm: &mut RealmConfig,
+    qemu: &mut QemuParams,
+) -> Result<()> {
     let arg = pop_arg(raw_args, "-object")?;
     let mut items = arg.split(',');
 
@@ -130,6 +155,7 @@ fn parse_object(raw_args: &mut RawArgs, realm: &mut RealmConfig) -> Result<()> {
         return Ok(());
     };
     if obj_type != "rme-guest" {
+        log::warn!("ignored -object {obj_type}");
         return Ok(());
     }
 
@@ -141,6 +167,7 @@ fn parse_object(raw_args: &mut RawArgs, realm: &mut RealmConfig) -> Result<()> {
         match prop {
             "measurement-algo" => realm.set_measurement_algo(val)?,
             "personalization-value" => realm.personalization_value.parse(val)?,
+            "measurement-log" => qemu.has_measurement_log = true,
             "id" => (),
             _ => bail!("unsupported rme-guest property '{prop}'"),
         }
@@ -226,7 +253,7 @@ fn parse_cpu(raw_args: &mut RawArgs, realm: &mut RealmConfig) -> Result<()> {
 
 fn parse_append(raw_args: &mut RawArgs, qemu: &mut QemuParams) -> Result<()> {
     let val = pop_arg(raw_args, "-append")?;
-    qemu.bootargs = Some(val);
+    qemu.set_bootargs(&val);
     Ok(())
 }
 
@@ -236,200 +263,230 @@ fn parse_ignore(raw_args: &mut RawArgs, arg: &str) -> Result<()> {
     Ok(())
 }
 
-/// Generate a DTB for the virt machine, and add it as a blob
-///
-/// This is currently based on QEMU virt 9.1
-///
-fn add_dtb(args: &Args, realm: &mut RealmConfig, qemu: &QemuParams) -> Result<()> {
-    let gic_phandle: u32 = 1;
-    let its_phandle: u32 = 2;
-    let clock_phandle: u32 = 3;
-
-    let initrd = if qemu.initrd_size != 0 {
-        Some((qemu.initrd_start, qemu.initrd_size))
-    } else {
-        None
-    };
-
-    let (mut fdt, root_node) = fdt_new(
-        (QEMU_MEM_BASE, qemu.mem_size),
-        qemu.num_cpus,
-        gic_phandle,
-        qemu.bootargs.as_deref(),
-        initrd,
-    )?;
-
-    let bus_node = fdt_begin_node_addr(&mut fdt, "platform-bus", QEMU_PLATFORM_BUS_BASE)?;
-    fdt.property_u32("interrupt-parent", gic_phandle)?;
-    fdt.property_array_u32(
-        "ranges",
-        &[0, 0, lo(QEMU_PLATFORM_BUS_BASE), lo(QEMU_PLATFORM_BUS_SIZE)],
-    )?;
-    fdt.property_u32("#address-cells", 1)?;
-    fdt.property_u32("#size-cells", 1)?;
-    let compat = vec!["qemu,platform".to_string(), "simple-bus".to_string()];
-    fdt.property_string_list("compatible", compat)?;
-    fdt.end_node(bus_node)?;
-
-    let fw_cfg_node = fdt_begin_node_addr(&mut fdt, "fw-cfg", QEMU_FW_CFG_BASE)?;
-    fdt.property_null("dma-coherent")?;
-    fdt.property_array_u64("reg", &[QEMU_FW_CFG_BASE, QEMU_FW_CFG_SIZE])?;
-    fdt.property_string("compatible", "qemu,fw-cfg-mmio")?;
-    fdt.end_node(fw_cfg_node)?;
-
-    for i in 0..32 {
-        let addr: u64 = QEMU_VIRTIO_MMIO_BASE + i * QEMU_VIRTIO_MMIO_SIZE;
-        let interrupt: u32 = QEMU_SPI_MMIO + i as u32;
-        let virtio_mmio_node = fdt_begin_node_addr(&mut fdt, "virtio_mmio", addr)?;
-        fdt.property_null("dma-coherent")?;
-        let interrupts = [FDT_IRQ_SPI, interrupt, FDT_IRQ_EDGE_LO_HI];
-        fdt.property_array_u32("interrupts", &interrupts)?;
-        fdt.property_array_u64("reg", &[addr, QEMU_VIRTIO_MMIO_SIZE])?;
-        fdt.property_string("compatible", "virtio,mmio")?;
-        fdt.end_node(virtio_mmio_node)?;
+impl DTBGenerator for QemuParams {
+    fn set_initrd(&mut self, base: GuestAddress, size: u64) {
+        self.initrd = Some((base, size));
     }
 
-    let pcie_node = fdt_begin_node_addr(&mut fdt, "pcie", QEMU_HIGH_PCI_CFG_BASE)?;
-    // Generate interrupt-map
-    let mut irq_map: Vec<u32> = vec![];
-    for dev in 0..4 {
-        for pin in 0..4 {
-            let irq_nr = QEMU_SPI_PCIE + ((pin + dev) % 4);
-            irq_map.extend_from_slice(&[
-                (pci_devfn(dev as u8, 0) as u32) << 8,
-                0,
-                0,
-                pin + 1,
-                gic_phandle,
-                0,
-                0,
-                FDT_IRQ_SPI,
-                irq_nr,
-                FDT_IRQ_LEVEL_HI,
-            ]);
+    fn set_log_location(&mut self, base: GuestAddress, size: u64) {
+        self.log = Some((base, size));
+    }
+
+    fn set_mem_size(&mut self, mem_size: u64) {
+        self.mem_size = mem_size;
+    }
+
+    fn set_num_cpus(&mut self, num_cpus: usize) {
+        self.num_cpus = num_cpus;
+    }
+
+    fn set_pmu(&mut self, pmu: bool) {
+        self.has_pmu = pmu;
+    }
+
+    fn set_its(&mut self, its: bool) {
+        self.has_its = its;
+    }
+
+    fn set_bootargs(&mut self, bootargs: &str) {
+        self.bootargs = Some(bootargs.to_string());
+    }
+
+    /// Generate a DTB for the virt machine, and add it as a blob
+    ///
+    /// This is currently based on QEMU virt 9.1
+    ///
+    fn gen_dtb(&self) -> VmmResult<Vec<u8>> {
+        let gic_phandle: u32 = 1;
+        let its_phandle: u32 = 2;
+        let clock_phandle: u32 = 3;
+
+        let (mut fdt, root_node) = fdt_new(
+            (QEMU_MEM_BASE, self.mem_size),
+            self.num_cpus,
+            gic_phandle,
+            self.bootargs.as_deref(),
+            self.initrd,
+        )?;
+
+        let bus_node =
+            fdt_begin_node_addr(&mut fdt, "platform-bus", QEMU_PLATFORM_BUS_BASE)?;
+        fdt.property_u32("interrupt-parent", gic_phandle)?;
+        fdt.property_array_u32(
+            "ranges",
+            &[0, 0, lo(QEMU_PLATFORM_BUS_BASE), lo(QEMU_PLATFORM_BUS_SIZE)],
+        )?;
+        fdt.property_u32("#address-cells", 1)?;
+        fdt.property_u32("#size-cells", 1)?;
+        let compat = vec!["self,platform".to_string(), "simple-bus".to_string()];
+        fdt.property_string_list("compatible", compat)?;
+        fdt.end_node(bus_node)?;
+
+        if let Some((log_base, log_size)) = self.log {
+            // Add a node for the measurement log within reserved-memory
+            let resv_mem_node = fdt.begin_node("reserved-memory")?;
+            fdt.property_u32("#address-cells", 2)?;
+            fdt.property_u32("#size-cells", 2)?;
+            fdt.property_null("ranges")?;
+            let log_node = fdt_begin_node_addr(&mut fdt, "event-log", log_base)?;
+            fdt.property_string("compatible", "cc-event-log")?;
+            fdt.property_array_u64("reg", &[log_base, log_size])?;
+
+            fdt.end_node(log_node)?;
+            fdt.end_node(resv_mem_node)?;
         }
+
+        let fw_cfg_node = fdt_begin_node_addr(&mut fdt, "fw-cfg", QEMU_FW_CFG_BASE)?;
+        fdt.property_null("dma-coherent")?;
+        fdt.property_array_u64("reg", &[QEMU_FW_CFG_BASE, QEMU_FW_CFG_SIZE])?;
+        fdt.property_string("compatible", "self,fw-cfg-mmio")?;
+        fdt.end_node(fw_cfg_node)?;
+
+        for i in 0..32 {
+            let addr: u64 = QEMU_VIRTIO_MMIO_BASE + i * QEMU_VIRTIO_MMIO_SIZE;
+            let interrupt: u32 = QEMU_SPI_MMIO + i as u32;
+            let virtio_mmio_node = fdt_begin_node_addr(&mut fdt, "virtio_mmio", addr)?;
+            fdt.property_null("dma-coherent")?;
+            let interrupts = [FDT_IRQ_SPI, interrupt, FDT_IRQ_EDGE_LO_HI];
+            fdt.property_array_u32("interrupts", &interrupts)?;
+            fdt.property_array_u64("reg", &[addr, QEMU_VIRTIO_MMIO_SIZE])?;
+            fdt.property_string("compatible", "virtio,mmio")?;
+            fdt.end_node(virtio_mmio_node)?;
+        }
+
+        let pcie_node = fdt_begin_node_addr(&mut fdt, "pcie", QEMU_HIGH_PCI_CFG_BASE)?;
+        // Generate interrupt-map
+        let mut irq_map: Vec<u32> = vec![];
+        for dev in 0..4 {
+            for pin in 0..4 {
+                let irq_nr = QEMU_SPI_PCIE + ((pin + dev) % 4);
+                irq_map.extend_from_slice(&[
+                    (pci_devfn(dev as u8, 0) as u32) << 8,
+                    0,
+                    0,
+                    pin + 1,
+                    gic_phandle,
+                    0,
+                    0,
+                    FDT_IRQ_SPI,
+                    irq_nr,
+                    FDT_IRQ_LEVEL_HI,
+                ]);
+            }
+        }
+        fdt.property_array_u32("interrupt-map", &irq_map)?;
+        // All PCI devices share four IRQ lines
+        let devfn_mask = pci_devfn(0x3, 0) as u32;
+        fdt.property_array_u32("interrupt-map-mask", &[devfn_mask << 8, 0, 0, 0x7])?;
+        fdt.property_u32("#interrupt-cells", 1)?;
+        fdt.property_array_u32(
+            "ranges",
+            &[
+                FDT_PCI_RANGE_IOPORT,
+                0,
+                0,
+                0,
+                lo(QEMU_PCI_IOPORT_BASE),
+                0,
+                lo(QEMU_PCI_IOPORT_SIZE),
+                FDT_PCI_RANGE_MMIO,
+                0,
+                lo(QEMU_PCI_MMIO_BASE),
+                0,
+                lo(QEMU_PCI_MMIO_BASE),
+                0,
+                lo(QEMU_PCI_MMIO_SIZE),
+                FDT_PCI_RANGE_MMIO_64BIT,
+                hi(QEMU_HIGH_PCI_MMIO_BASE),
+                lo(QEMU_HIGH_PCI_MMIO_BASE),
+                hi(QEMU_HIGH_PCI_MMIO_BASE),
+                lo(QEMU_HIGH_PCI_MMIO_BASE),
+                hi(QEMU_HIGH_PCI_MMIO_SIZE),
+                lo(QEMU_HIGH_PCI_MMIO_SIZE),
+            ],
+        )?;
+
+        fdt.property_array_u64("reg", &[QEMU_HIGH_PCI_CFG_BASE, QEMU_HIGH_PCI_CFG_SIZE])?;
+        if self.has_its {
+            fdt.property_array_u32("msi-map", &[0, its_phandle, 0, 0x10000])?;
+        }
+        fdt.property_null("dma-coherent")?;
+        fdt.property_array_u32("bus-range", &[0, 0xff])?;
+        fdt.property_u32("linux,pci-domain", 0)?;
+        fdt.property_u32("#size-cells", 2)?;
+        fdt.property_u32("#address-cells", 3)?;
+        fdt.property_string("device_type", "pci")?;
+        fdt.property_string("compatible", "pci-host-ecam-generic")?;
+        fdt.end_node(pcie_node)?;
+
+        let rtc_node = fdt_begin_node_addr(&mut fdt, "pl031", QEMU_RTC_BASE)?;
+        fdt.property_string("clock-names", "apb_pclk")?;
+        fdt.property_array_u64("reg", &[QEMU_RTC_BASE, QEMU_RTC_SIZE])?;
+        fdt.property_u32("clocks", clock_phandle)?;
+        let interrupts = [FDT_IRQ_SPI, QEMU_SPI_RTC, FDT_IRQ_LEVEL_HI];
+        fdt.property_array_u32("interrupts", &interrupts)?;
+        fdt.property_string_list(
+            "compatible",
+            vec!["arm,pl031".to_string(), "arm,primecell".to_string()],
+        )?;
+        fdt.end_node(rtc_node)?;
+
+        let uart_node = fdt_begin_node_addr(&mut fdt, "pl011", QEMU_UART_BASE)?;
+        fdt.property_string_list(
+            "clock-names",
+            vec!["uartclk".to_string(), "apb_pclk".to_string()],
+        )?;
+        fdt.property_array_u64("reg", &[QEMU_UART_BASE, QEMU_UART_SIZE])?;
+        fdt.property_array_u32("clocks", &[clock_phandle, clock_phandle])?;
+        fdt.property_array_u32(
+            "interrupts",
+            &[FDT_IRQ_SPI, QEMU_SPI_UART, FDT_IRQ_LEVEL_HI],
+        )?;
+        fdt.property_string_list(
+            "compatible",
+            vec!["arm,pl011".to_string(), "arm,primecell".to_string()],
+        )?;
+        fdt.end_node(uart_node)?;
+
+        if self.has_pmu {
+            fdt_add_pmu(&mut fdt, QEMU_PPI_PMU)?;
+        }
+
+        let mut gic_regs = vec![
+            QEMU_GIC_DIST_BASE,
+            QEMU_GIC_DIST_SIZE,
+            QEMU_GIC_REDIST_BASE,
+            QEMU_GIC_REDIST_SIZE,
+        ];
+
+        let redist_size = match self.gic_version {
+            GicModel::GICv3 => 0x20000,
+            GicModel::GICv4 => 0x40000,
+        };
+        if self.num_cpus > QEMU_GIC_REDIST_SIZE as usize / redist_size {
+            gic_regs.push(QEMU_HIGH_REDIST_BASE);
+            gic_regs.push(QEMU_HIGH_REDIST_SIZE)
+        }
+
+        let its_reg = if self.has_its {
+            Some([QEMU_GIC_ITS_BASE, QEMU_GIC_ITS_SIZE])
+        } else {
+            None
+        };
+        fdt_add_gic(&mut fdt, &gic_regs, its_reg, gic_phandle, its_phandle)?;
+        fdt_add_timer(&mut fdt, &[13, 14, 11], FDT_IRQ_LEVEL_HI)?;
+
+        let clk_node = fdt.begin_node("apb-pclk")?;
+        fdt.property_phandle(clock_phandle)?;
+        fdt.property_string("clock-output-names", "clk24mhz")?;
+        fdt.property_u32("clock-frequency", 24000000)?;
+        fdt.property_u32("#clock-cells", 0)?;
+        fdt.property_string("compatible", "fixed-clock")?;
+        fdt.end_node(clk_node)?;
+
+        fdt.end_node(root_node)?;
+        Ok(fdt.finish()?)
     }
-    fdt.property_array_u32("interrupt-map", &irq_map)?;
-    // All PCI devices share four IRQ lines
-    let devfn_mask = pci_devfn(0x3, 0) as u32;
-    fdt.property_array_u32("interrupt-map-mask", &[devfn_mask << 8, 0, 0, 0x7])?;
-    fdt.property_u32("#interrupt-cells", 1)?;
-    fdt.property_array_u32(
-        "ranges",
-        &[
-            FDT_PCI_RANGE_IOPORT,
-            0,
-            0,
-            0,
-            lo(QEMU_PCI_IOPORT_BASE),
-            0,
-            lo(QEMU_PCI_IOPORT_SIZE),
-            FDT_PCI_RANGE_MMIO,
-            0,
-            lo(QEMU_PCI_MMIO_BASE),
-            0,
-            lo(QEMU_PCI_MMIO_BASE),
-            0,
-            lo(QEMU_PCI_MMIO_SIZE),
-            FDT_PCI_RANGE_MMIO_64BIT,
-            hi(QEMU_HIGH_PCI_MMIO_BASE),
-            lo(QEMU_HIGH_PCI_MMIO_BASE),
-            hi(QEMU_HIGH_PCI_MMIO_BASE),
-            lo(QEMU_HIGH_PCI_MMIO_BASE),
-            hi(QEMU_HIGH_PCI_MMIO_SIZE),
-            lo(QEMU_HIGH_PCI_MMIO_SIZE),
-        ],
-    )?;
-
-    fdt.property_array_u64("reg", &[QEMU_HIGH_PCI_CFG_BASE, QEMU_HIGH_PCI_CFG_SIZE])?;
-    if qemu.has_its {
-        fdt.property_array_u32("msi-map", &[0, its_phandle, 0, 0x10000])?;
-    }
-    fdt.property_null("dma-coherent")?;
-    fdt.property_array_u32("bus-range", &[0, 0xff])?;
-    fdt.property_u32("linux,pci-domain", 0)?;
-    fdt.property_u32("#size-cells", 2)?;
-    fdt.property_u32("#address-cells", 3)?;
-    fdt.property_string("device_type", "pci")?;
-    fdt.property_string("compatible", "pci-host-ecam-generic")?;
-    fdt.end_node(pcie_node)?;
-
-    let rtc_node = fdt_begin_node_addr(&mut fdt, "pl031", QEMU_RTC_BASE)?;
-    fdt.property_string("clock-names", "apb_pclk")?;
-    fdt.property_array_u64("reg", &[QEMU_RTC_BASE, QEMU_RTC_SIZE])?;
-    fdt.property_u32("clocks", clock_phandle)?;
-    let interrupts = [FDT_IRQ_SPI, QEMU_SPI_RTC, FDT_IRQ_LEVEL_HI];
-    fdt.property_array_u32("interrupts", &interrupts)?;
-    fdt.property_string_list(
-        "compatible",
-        vec!["arm,pl031".to_string(), "arm,primecell".to_string()],
-    )?;
-    fdt.end_node(rtc_node)?;
-
-    let uart_node = fdt_begin_node_addr(&mut fdt, "pl011", QEMU_UART_BASE)?;
-    fdt.property_string_list(
-        "clock-names",
-        vec!["uartclk".to_string(), "apb_pclk".to_string()],
-    )?;
-    fdt.property_array_u64("reg", &[QEMU_UART_BASE, QEMU_UART_SIZE])?;
-    fdt.property_array_u32("clocks", &[clock_phandle, clock_phandle])?;
-    fdt.property_array_u32(
-        "interrupts",
-        &[FDT_IRQ_SPI, QEMU_SPI_UART, FDT_IRQ_LEVEL_HI],
-    )?;
-    fdt.property_string_list(
-        "compatible",
-        vec!["arm,pl011".to_string(), "arm,primecell".to_string()],
-    )?;
-    fdt.end_node(uart_node)?;
-
-    if realm.params.pmu.is_some_and(|v| v) {
-        fdt_add_pmu(&mut fdt, QEMU_PPI_PMU)?;
-    }
-
-    let mut gic_regs = vec![
-        QEMU_GIC_DIST_BASE,
-        QEMU_GIC_DIST_SIZE,
-        QEMU_GIC_REDIST_BASE,
-        QEMU_GIC_REDIST_SIZE,
-    ];
-
-    let redist_size = match qemu.gic_version {
-        GicModel::GICv3 => 0x20000,
-        GicModel::GICv4 => 0x40000,
-    };
-    if qemu.num_cpus > QEMU_GIC_REDIST_SIZE as usize / redist_size {
-        gic_regs.push(QEMU_HIGH_REDIST_BASE);
-        gic_regs.push(QEMU_HIGH_REDIST_SIZE)
-    }
-
-    let its_reg = if qemu.has_its {
-        Some([QEMU_GIC_ITS_BASE, QEMU_GIC_ITS_SIZE])
-    } else {
-        None
-    };
-    fdt_add_gic(&mut fdt, &gic_regs, its_reg, gic_phandle, its_phandle)?;
-    fdt_add_timer(&mut fdt, &[13, 14, 11], FDT_IRQ_LEVEL_HI)?;
-
-    let clk_node = fdt.begin_node("apb-pclk")?;
-    fdt.property_phandle(clock_phandle)?;
-    fdt.property_string("clock-output-names", "clk24mhz")?;
-    fdt.property_u32("clock-frequency", 24000000)?;
-    fdt.property_u32("#clock-cells", 0)?;
-    fdt.property_string("compatible", "fixed-clock")?;
-    fdt.end_node(clk_node)?;
-
-    fdt.end_node(root_node)?;
-    let bytes = fdt.finish()?;
-
-    if let Some(output_dtb) = &args.output_dtb {
-        write_dtb(output_dtb, &bytes)?;
-    }
-
-    let blob = VmmBlob::from_bytes(bytes, qemu.dtb_start)?;
-    realm.add_rim_blob(blob)?;
-
-    Ok(())
 }
 
 fn check_memmap(realm: &mut RealmConfig, qemu: &mut QemuParams) -> Result<()> {
@@ -457,33 +514,23 @@ pub fn build_params(args: &Args, qemu_args: &QemuArgs) -> Result<RealmConfig> {
     let mut use_firmware = false;
     let mut use_kernel = false;
     let mut use_initrd = false;
+    let mut dtb_start = QEMU_MEM_BASE;
     let raw_args = &mut raw_args_from_vec(&qemu_args.args);
 
     let mut realm = RealmConfig::from_args(args)?;
-    let mut qemu = QemuParams {
-        num_cpus: 1,
-        mem_size: 128 * MIB,
-        bootargs: None,
-        dtb_start: QEMU_MEM_BASE,
-        initrd_start: 0,
-        initrd_size: 0,
-        kernel_start: 0,
-        // On recent virt machines, ITS is enabled by default
-        has_its: true,
-        has_acpi: true,
-        gic_version: GicModel::GICv3,
-    };
+    let mut qemu = QemuParams::new();
 
     realm.set_measurement_algo("sha512")?;
+    qemu.set_pmu(realm.params.pmu.is_some_and(|v| v));
 
     // Parse QEMU's command-line to get more details about the desired VM
     while let Some(arg) = raw_args.pop_front() {
         let arg = split_arg_eq(raw_args, &arg);
 
         match arg.as_str() {
-            "-m" => qemu.mem_size = parse_mem(raw_args)?,
-            "-smp" => qemu.num_cpus = parse_smp(raw_args)?,
-            "-object" => parse_object(raw_args, &mut realm)?,
+            "-m" => qemu.set_mem_size(parse_mem(raw_args)?),
+            "-smp" => qemu.set_num_cpus(parse_smp(raw_args)?),
+            "-object" => parse_object(raw_args, &mut realm, &mut qemu)?,
             "-append" => parse_append(raw_args, &mut qemu)?,
             "-machine" | "-M" => parse_machine(raw_args, &mut qemu)?,
             "-cpu" => parse_cpu(raw_args, &mut realm)?,
@@ -534,10 +581,10 @@ pub fn build_params(args: &Args, qemu_args: &QemuArgs) -> Result<RealmConfig> {
         qemu.kernel_start = kernel.guest_start;
 
         let mut initrd_start = QEMU_MEM_BASE + min(qemu.mem_size / 2, 128u64 * MIB);
+        let mut initrd_size = 0;
         // Avoid overriding kernel
         initrd_start = max(initrd_start, qemu.kernel_start + kernel_load_size);
         initrd_start = align_up(initrd_start, 4 * KIB);
-        qemu.initrd_start = initrd_start;
 
         // Without firmware, the VMM loads images into memory. Otherwise, it
         // passes them to the firmware via fw_cfg. TODO: what REM index?
@@ -553,7 +600,8 @@ pub fn build_params(args: &Args, qemu_args: &QemuArgs) -> Result<RealmConfig> {
             };
 
             let initrd = VmmBlob::from_file(filename, initrd_start)?;
-            qemu.initrd_size = initrd.size;
+            initrd_size = initrd.size;
+            qemu.set_initrd(initrd_start, initrd_size);
             if use_firmware {
                 realm.add_rem_blob(0, initrd)?;
             } else {
@@ -561,7 +609,11 @@ pub fn build_params(args: &Args, qemu_args: &QemuArgs) -> Result<RealmConfig> {
             }
         }
 
-        qemu.dtb_start = align_up(initrd_start + qemu.initrd_size, 2 * MIB);
+        dtb_start = align_up(initrd_start + initrd_size, 2 * MIB);
+    }
+
+    if qemu.has_measurement_log {
+        qemu.set_log_location(dtb_start + QEMU_DTB_SIZE, QEMU_LOG_SIZE);
     }
 
     if use_firmware {
@@ -574,10 +626,15 @@ pub fn build_params(args: &Args, qemu_args: &QemuArgs) -> Result<RealmConfig> {
     }
 
     let pc = if use_firmware { 0 } else { QEMU_MEM_BASE };
-    realm.add_rec(pc, [qemu.dtb_start, 0, 0, 0, 0, 0, 0, 0])?;
+    realm.add_rec(pc, [dtb_start, 0, 0, 0, 0, 0, 0, 0])?;
+
+    if let Some((log_base, log_size)) = qemu.log {
+        realm.add_rim_unmeasured(log_base, log_size)?;
+    }
 
     // Now generate a DTB...
-    add_dtb(args, &mut realm, &qemu).context("while generating DTB")?;
+    qemu.add_dtb(&args.output_dtb, dtb_start, &mut realm)
+        .context("while generating DTB")?;
 
     Ok(realm)
 }

@@ -193,6 +193,9 @@ QEMU virt v9.1
   Note: the fw_cfg device is used to optionally pass kernel and initrd to
     the guest. The firmware measures them and adds them to the REM.
 
+* When a measurement log is enabled, it must be placed 1024 KiB after the
+  DTB, with a size of 64KiB.
+
 * The memory map SHOULD be:
 
     Range                       Component               Compatible
