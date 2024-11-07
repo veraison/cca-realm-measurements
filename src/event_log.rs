@@ -167,10 +167,47 @@ impl MeasurementImages {
 /// MeasurementImages that can be shared between threads
 type SharedMeasurementImages = Arc<RwLock<MeasurementImages>>;
 
+/// DTBs used as templates when generating the DTB loaded into the Realm.
+#[derive(Debug, Default, Clone, PartialEq)]
+pub struct DTBTemplates {
+    /// The key is the VMM name + version, joined with a space
+    dtbs: HashMap<String, BlobStorage>,
+}
+
+impl DTBTemplates {
+    /// Create DTB template map from a list of DTB files. Each line in the list
+    /// contains three fields separated by a tab.
+    ///
+    /// NAME\tVERSION\tFILE
+    ///
+    /// Where NAME is the VMM name, for example kvmtool; VERSION is the VMM
+    /// version, for example 3.18, and FILE is the path to the template.
+    pub fn from_file_list(filename: &str) -> Result<Self> {
+        let mut dtbs = Self::default();
+
+        let (list, dirname) = file_content_and_parent(filename)?;
+        for l in list.lines() {
+            let items: Vec<&str> = l.split('\t').collect();
+            if items.len() != 3 {
+                return Err(EventLogError::ParseDTBList(l.to_string()));
+            }
+            let name = format!("{} {}", items[0], items[1]);
+            let path = path_to_absolute(items[2], &dirname)?;
+
+            dtbs.dtbs.insert(name, BlobStorage::from_file(&path));
+        }
+        Ok(dtbs)
+    }
+}
+
+/// DTBTemplate that can be shared between threads
+type SharedDTBTemplates = Arc<RwLock<DTBTemplates>>;
+
 #[derive(Debug)]
 struct TcgEventLog<'a> {
     raw_log: &'a [u8],
     images: &'a SharedMeasurementImages,
+    dtbs: &'a SharedDTBTemplates,
     realm: &'a mut Realm,
     second_pass: bool,
 
@@ -189,6 +226,7 @@ impl<'a> TcgEventLog<'a> {
         Self {
             raw_log,
             images: &config.images,
+            dtbs: &config.dtbs,
             second_pass: false,
             realm,
             realm_params: None,
@@ -457,6 +495,20 @@ impl<'a> TcgEventLog<'a> {
         gen.set_its(true); // TODO
         gen.set_bootargs("console=hvc0"); // TODO
 
+        let dtb_name = format!(
+            "{} {}",
+            // we already checked that name is Some above
+            std::str::from_utf8(name.unwrap())?,
+            std::str::from_utf8(version)?
+        );
+
+        if let Some(template) = self.dtbs.write().unwrap().dtbs.get_mut(&dtb_name) {
+            log::trace!("found DTB template for {dtb_name}");
+            gen.set_template(template.read()?.to_vec())?;
+        } else {
+            log::debug!("DTB template {dtb_name} not found");
+        }
+
         self.dtb_generator = Some(gen);
         Ok(())
     }
@@ -624,6 +676,7 @@ impl<'a> TcgEventLog<'a> {
 #[derive(Debug, Default)]
 pub struct EventLogParser {
     images: SharedMeasurementImages,
+    dtbs: SharedDTBTemplates,
 
     fatal: bool,
 }
@@ -645,6 +698,12 @@ impl EventLogParser {
     /// Set image files loaded into the Realm.
     pub fn images(&mut self, images: MeasurementImages) -> &mut Self {
         self.images = Arc::new(RwLock::new(images));
+        self
+    }
+
+    /// Set DTB templates corresponding to each VMM version.
+    pub fn dtbs(&mut self, dtbs: DTBTemplates) -> &mut Self {
+        self.dtbs = Arc::new(RwLock::new(dtbs));
         self
     }
 

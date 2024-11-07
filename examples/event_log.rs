@@ -1,7 +1,7 @@
 use clap::Parser;
 use std::fs;
 
-use realm_token::event_log::{EventLogParser, MeasurementImages};
+use realm_token::event_log::{DTBTemplates, EventLogParser, MeasurementImages};
 use realm_token::realm::Realm;
 
 #[derive(Debug, Parser)]
@@ -12,6 +12,9 @@ struct Args {
 
     /// Checksums file
     checksums_file: Option<String>,
+
+    /// DTB list
+    dtb_list: Option<String>,
 }
 
 fn main() {
@@ -21,6 +24,9 @@ fn main() {
     let mut parser = EventLogParser::new();
     if let Some(f) = args.checksums_file {
         parser.images(MeasurementImages::from_checksums(&f).unwrap());
+    }
+    if let Some(f) = args.dtb_list {
+        parser.dtbs(DTBTemplates::from_file_list(&f).unwrap());
     }
 
     let mut realm = Realm::new();
