@@ -8,10 +8,13 @@ use std::cmp::{max, min};
 use anyhow::{bail, Context, Result};
 
 use crate::command_line::*;
+use crate::dtb_surgeon::*;
 use crate::fdt::*;
 use crate::realm_config::*;
 use crate::utils::*;
 use crate::vmm::*;
+
+use vm_fdt::FdtWriter;
 
 const QEMU_GIC_DIST_BASE: u64 = 0x08000000;
 const QEMU_GIC_DIST_SIZE: u64 = 0x00010000;
@@ -41,6 +44,8 @@ const QEMU_HIGH_PCI_CFG_SIZE: u64 = 256 * MIB;
 const QEMU_HIGH_PCI_MMIO_BASE: u64 = 0x80_00000000;
 const QEMU_HIGH_PCI_MMIO_SIZE: u64 = 512 * GIB;
 
+const QEMU_BASE_PHANDLE: u32 = 0x8000;
+
 const QEMU_SPI_UART: u32 = 1;
 const QEMU_SPI_RTC: u32 = 2;
 const QEMU_SPI_PCIE: u32 = 3;
@@ -54,7 +59,7 @@ const QEMU_LOG_SIZE: u64 = 64 * KIB;
 /// QEMU configuration
 #[derive(Clone, Debug, Default)]
 pub struct QemuParams {
-    num_cpus: usize,
+    num_cpus: u32,
     mem_size: u64,
     // Kernel command line
     bootargs: Option<String>,
@@ -67,6 +72,7 @@ pub struct QemuParams {
     has_acpi: bool,
     has_measurement_log: bool,
     gic_version: GicModel,
+    dtb_template: Option<Vec<u8>>,
 }
 
 impl QemuParams {
@@ -80,6 +86,49 @@ impl QemuParams {
             has_acpi: true,
             gic_version: GicModel::GICv3,
             ..Default::default()
+        }
+    }
+
+    fn gic_phandle(&self) -> u32 {
+        QEMU_BASE_PHANDLE + self.num_cpus + 1
+    }
+
+    fn its_phandle(&self) -> u32 {
+        self.gic_phandle() + 1
+    }
+
+    fn gpio_phandle(&self) -> u32 {
+        if self.has_its {
+            self.its_phandle() + 1
+        } else {
+            self.gic_phandle() + 1
+        }
+    }
+
+    fn gic_regs(&self) -> Vec<u64> {
+        let mut gic_regs = vec![
+            QEMU_GIC_DIST_BASE,
+            QEMU_GIC_DIST_SIZE,
+            QEMU_GIC_REDIST_BASE,
+            QEMU_GIC_REDIST_SIZE,
+        ];
+
+        if self.redist_regions() == 2 {
+            gic_regs.push(QEMU_HIGH_REDIST_BASE);
+            gic_regs.push(QEMU_HIGH_REDIST_SIZE)
+        }
+        gic_regs
+    }
+
+    fn redist_regions(&self) -> u32 {
+        let redist_size = match self.gic_version {
+            GicModel::GICv3 => 0x20000,
+            GicModel::GICv4 => 0x40000,
+        };
+        if self.num_cpus > QEMU_GIC_REDIST_SIZE as u32 / redist_size {
+            2
+        } else {
+            1
         }
     }
 }
@@ -266,6 +315,173 @@ fn parse_ignore(raw_args: &mut RawArgs, arg: &str) -> Result<()> {
     Ok(())
 }
 
+impl DTBSurgeon for QemuParams {
+    // Overwrite DTB nodes. Return false if the caller should add the old node
+    // to the DTB, true to drop it.
+    fn handle_node(&self, fdt: &mut FdtWriter, node_name: &str) -> DTBResult<bool> {
+        match node_name {
+            "cpus" => {
+                // Not sure why, but it seems phandles are allocated in reverse
+                // order, starting at 0x8001 (pclk has 0x8000).
+                let mut phandle = 0x8000 + self.num_cpus;
+
+                // For now a simple single-cluster topology
+                let cpus_node = fdt.begin_node("cpus")?;
+                fdt.property_u32("#size-cells", 0)?;
+                fdt.property_u32("#address-cells", 1)?;
+
+                let map_node = fdt.begin_node("cpu-map")?;
+                let socket_node = fdt.begin_node("socket0")?;
+                let cluster_node = fdt.begin_node("cluster0")?;
+                for i in 0..self.num_cpus {
+                    let name = format!("core{i}");
+                    let core_node = fdt.begin_node(&name)?;
+                    fdt.property_u32("cpu", phandle)?;
+                    fdt.end_node(core_node)?;
+                    phandle -= 1;
+                }
+                fdt.end_node(cluster_node)?;
+                fdt.end_node(socket_node)?;
+                fdt.end_node(map_node)?;
+
+                phandle = 0x8000 + self.num_cpus;
+                for i in 0..self.num_cpus {
+                    let node_name = format!("cpu@{i}");
+                    let cpu_node = fdt.begin_node(&node_name)?;
+                    fdt.property_phandle(phandle)?;
+                    fdt.property_u32("reg", i)?;
+                    fdt.property_string("enable-method", "psci")?;
+                    fdt.property_string("compatible", "arm,arm-v8")?;
+                    fdt.property_string("device_type", "cpu")?;
+                    fdt.end_node(cpu_node)?;
+                    phandle -= 1;
+                }
+                fdt.end_node(cpus_node)?;
+                Ok(true)
+            }
+            "reserved-memory" => {
+                let Some((log_base, log_size)) = self.log else {
+                    return Ok(true);
+                };
+
+                // Add a node for the measurement log within reserved-memory
+                let resv_mem_node = fdt.begin_node("reserved-memory")?;
+                fdt.property_null("ranges")?;
+                fdt.property_u32("#size-cells", 2)?;
+                fdt.property_u32("#address-cells", 2)?;
+                let log_node = fdt_begin_node_addr(fdt, "event-log", log_base)?;
+                fdt.property_array_u64("reg", &[log_base, log_size])?;
+                fdt.property_string("compatible", "cc-event-log")?;
+
+                fdt.end_node(log_node)?;
+                fdt.end_node(resv_mem_node)?;
+                Ok(true)
+            }
+            "its@8080000" => Ok(!self.has_its),
+            "pmu" => Ok(!self.has_pmu),
+            _ => Ok(false),
+        }
+    }
+
+    // Overwrite node property.
+    fn handle_property(
+        &self,
+        fdt: &mut FdtWriter,
+        node_name: &str,
+        property_name: &str,
+        property_val: &[u8],
+    ) -> DTBResult<bool> {
+        if property_name == "interrupt-parent" {
+            fdt.property_u32("interrupt-parent", self.gic_phandle())?;
+            return Ok(true);
+        }
+        match node_name {
+            "intc@8000000" => match property_name {
+                "reg" => {
+                    fdt.property_array_u64("reg", &self.gic_regs())?;
+                    return Ok(true);
+                }
+                "phandle" => {
+                    fdt.property_phandle(self.gic_phandle())?;
+                    return Ok(true);
+                }
+                "#redistributor-regions" => {
+                    fdt.property_u32("#redistributor-regions", self.redist_regions())?;
+                    return Ok(true);
+                }
+                _ => (),
+            },
+            "its@8080000" => {
+                if property_name == "phandle" {
+                    fdt.property_phandle(self.its_phandle())?;
+                    return Ok(true);
+                }
+            }
+            "pcie@10000000" => match property_name {
+                "interrupt-map" => {
+                    let mut irq_map: Vec<u32> = vec![];
+                    for dev in 0..4 {
+                        for pin in 0..4 {
+                            let irq_nr = QEMU_SPI_PCIE + ((pin + dev) % 4);
+                            irq_map.extend_from_slice(&[
+                                (pci_devfn(dev as u8, 0) as u32) << 8,
+                                0,
+                                0,
+                                pin + 1,
+                                self.gic_phandle(),
+                                0,
+                                0,
+                                FDT_IRQ_SPI,
+                                irq_nr,
+                                FDT_IRQ_LEVEL_HI,
+                            ]);
+                        }
+                    }
+                    fdt.property_array_u32("interrupt-map", &irq_map)?;
+                    return Ok(true);
+                }
+                "msi-map" => {
+                    if self.has_its {
+                        fdt.property_array_u32(
+                            "msi-map",
+                            &[0, self.its_phandle(), 0, 0x10000],
+                        )?;
+                    }
+                    return Ok(true);
+                }
+                _ => (),
+            },
+            "pl061@9030000" => {
+                if property_name == "phandle" {
+                    fdt.property_phandle(self.gpio_phandle())?;
+                    return Ok(true);
+                }
+            }
+            // child of gpio-keys
+            "poweroff" => {
+                if property_name == "gpios" {
+                    fdt.property_array_u32("gpios", &[self.gpio_phandle(), 0x03, 0x00])?;
+                    return Ok(true);
+                }
+            }
+            _ => (),
+        }
+        self.handle_property_common(fdt, node_name, property_name, property_val)
+    }
+
+    fn mem(&self) -> (u64, u64) {
+        (QEMU_MEM_BASE, self.mem_size)
+    }
+
+    fn initrd(&self) -> Option<(u64, u64)> {
+        self.initrd
+    }
+
+    fn bootargs(&self) -> Option<&str> {
+        self.bootargs.as_deref()
+    }
+}
+
 impl DTBGenerator for QemuParams {
     fn set_initrd(&mut self, base: GuestAddress, size: u64) {
         self.initrd = Some((base, size));
@@ -280,7 +496,7 @@ impl DTBGenerator for QemuParams {
     }
 
     fn set_num_cpus(&mut self, num_cpus: usize) {
-        self.num_cpus = num_cpus;
+        self.num_cpus = num_cpus as u32;
     }
 
     fn set_pmu(&mut self, pmu: bool) {
@@ -295,26 +511,33 @@ impl DTBGenerator for QemuParams {
         self.bootargs = Some(bootargs.to_string());
     }
 
+    fn set_template(&mut self, template: Vec<u8>) -> VmmResult<()> {
+        self.dtb_template = Some(template);
+        Ok(())
+    }
+
     /// Generate a DTB for the virt machine, and add it as a blob
     ///
     /// This is currently based on QEMU virt 9.1
     ///
     fn gen_dtb(&self) -> VmmResult<Vec<u8>> {
-        let gic_phandle: u32 = 1;
-        let its_phandle: u32 = 2;
-        let clock_phandle: u32 = 3;
+        if let Some(input) = &self.dtb_template {
+            return Ok(self.update_dtb(input)?);
+        }
+
+        let clock_phandle: u32 = QEMU_BASE_PHANDLE;
 
         let (mut fdt, root_node) = fdt_new(
-            (QEMU_MEM_BASE, self.mem_size),
-            self.num_cpus,
-            gic_phandle,
+            self.mem(),
+            self.num_cpus as usize,
+            self.gic_phandle(),
             self.bootargs.as_deref(),
-            self.initrd,
+            self.initrd(),
         )?;
 
         let bus_node =
             fdt_begin_node_addr(&mut fdt, "platform-bus", QEMU_PLATFORM_BUS_BASE)?;
-        fdt.property_u32("interrupt-parent", gic_phandle)?;
+        self.handle_property(&mut fdt, "", "interrupt-parent", &[])?;
         fdt.property_array_u32(
             "ranges",
             &[0, 0, lo(QEMU_PLATFORM_BUS_BASE), lo(QEMU_PLATFORM_BUS_SIZE)],
@@ -325,19 +548,7 @@ impl DTBGenerator for QemuParams {
         fdt.property_string_list("compatible", compat)?;
         fdt.end_node(bus_node)?;
 
-        if let Some((log_base, log_size)) = self.log {
-            // Add a node for the measurement log within reserved-memory
-            let resv_mem_node = fdt.begin_node("reserved-memory")?;
-            fdt.property_u32("#address-cells", 2)?;
-            fdt.property_u32("#size-cells", 2)?;
-            fdt.property_null("ranges")?;
-            let log_node = fdt_begin_node_addr(&mut fdt, "event-log", log_base)?;
-            fdt.property_string("compatible", "cc-event-log")?;
-            fdt.property_array_u64("reg", &[log_base, log_size])?;
-
-            fdt.end_node(log_node)?;
-            fdt.end_node(resv_mem_node)?;
-        }
+        self.handle_node(&mut fdt, "reserved-memory")?;
 
         let fw_cfg_node = fdt_begin_node_addr(&mut fdt, "fw-cfg", QEMU_FW_CFG_BASE)?;
         fdt.property_null("dma-coherent")?;
@@ -357,27 +568,9 @@ impl DTBGenerator for QemuParams {
             fdt.end_node(virtio_mmio_node)?;
         }
 
-        let pcie_node = fdt_begin_node_addr(&mut fdt, "pcie", QEMU_HIGH_PCI_CFG_BASE)?;
-        // Generate interrupt-map
-        let mut irq_map: Vec<u32> = vec![];
-        for dev in 0..4 {
-            for pin in 0..4 {
-                let irq_nr = QEMU_SPI_PCIE + ((pin + dev) % 4);
-                irq_map.extend_from_slice(&[
-                    (pci_devfn(dev as u8, 0) as u32) << 8,
-                    0,
-                    0,
-                    pin + 1,
-                    gic_phandle,
-                    0,
-                    0,
-                    FDT_IRQ_SPI,
-                    irq_nr,
-                    FDT_IRQ_LEVEL_HI,
-                ]);
-            }
-        }
-        fdt.property_array_u32("interrupt-map", &irq_map)?;
+        let pcie_name = format!("pcie@{QEMU_PCI_MMIO_BASE:x}");
+        let pcie_node = fdt.begin_node(&pcie_name)?;
+        self.handle_property(&mut fdt, &pcie_name, "interrupt-map", &[])?;
         // All PCI devices share four IRQ lines
         let devfn_mask = pci_devfn(0x3, 0) as u32;
         fdt.property_array_u32("interrupt-map-mask", &[devfn_mask << 8, 0, 0, 0x7])?;
@@ -410,9 +603,7 @@ impl DTBGenerator for QemuParams {
         )?;
 
         fdt.property_array_u64("reg", &[QEMU_HIGH_PCI_CFG_BASE, QEMU_HIGH_PCI_CFG_SIZE])?;
-        if self.has_its {
-            fdt.property_array_u32("msi-map", &[0, its_phandle, 0, 0x10000])?;
-        }
+        self.handle_property(&mut fdt, &pcie_name, "msi-map", &[])?;
         fdt.property_null("dma-coherent")?;
         fdt.property_array_u32("bus-range", &[0, 0xff])?;
         fdt.property_u32("linux,pci-domain", 0)?;
@@ -455,28 +646,18 @@ impl DTBGenerator for QemuParams {
             fdt_add_pmu(&mut fdt, QEMU_PPI_PMU)?;
         }
 
-        let mut gic_regs = vec![
-            QEMU_GIC_DIST_BASE,
-            QEMU_GIC_DIST_SIZE,
-            QEMU_GIC_REDIST_BASE,
-            QEMU_GIC_REDIST_SIZE,
-        ];
-
-        let redist_size = match self.gic_version {
-            GicModel::GICv3 => 0x20000,
-            GicModel::GICv4 => 0x40000,
-        };
-        if self.num_cpus > QEMU_GIC_REDIST_SIZE as usize / redist_size {
-            gic_regs.push(QEMU_HIGH_REDIST_BASE);
-            gic_regs.push(QEMU_HIGH_REDIST_SIZE)
-        }
-
         let its_reg = if self.has_its {
             Some([QEMU_GIC_ITS_BASE, QEMU_GIC_ITS_SIZE])
         } else {
             None
         };
-        fdt_add_gic(&mut fdt, &gic_regs, its_reg, gic_phandle, its_phandle)?;
+        fdt_add_gic(
+            &mut fdt,
+            &self.gic_regs(),
+            its_reg,
+            self.gic_phandle(),
+            self.its_phandle(),
+        )?;
         fdt_add_timer(&mut fdt, &[13, 14, 11], FDT_IRQ_LEVEL_HI)?;
 
         let clk_node = fdt.begin_node("apb-pclk")?;
@@ -635,6 +816,9 @@ pub fn build_params(args: &Args, qemu_args: &QemuArgs) -> Result<RealmConfig> {
     }
 
     // Now generate a DTB...
+    if let Some(input_dtb) = &args.input_dtb {
+        qemu.set_template(std::fs::read(input_dtb)?)?;
+    }
     qemu.add_dtb(&args.output_dtb, dtb_start, &mut realm)
         .context("while generating DTB")?;
 
