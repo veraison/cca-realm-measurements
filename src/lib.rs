@@ -48,6 +48,9 @@ pub mod realm;
 /// VMM tools
 pub mod vmm;
 
+/// RMM definitions
+pub use rmm;
+
 // mod realm re-exports these
 mod realm_comid;
 mod realm_config;

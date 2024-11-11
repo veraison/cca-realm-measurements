@@ -14,7 +14,9 @@ use crate::realm::*;
 use crate::realm_params::RealmParams;
 use crate::utils::*;
 use crate::vmm::{GuestAddress, VmmBlob};
-use rmm::{self, RmiHashAlgorithm, RmmRealmMeasurement, RMM_GRANULE};
+use rmm::{
+    RmiHashAlgorithm, RmiRecCreateFlags, RmiRecParams, RmmRealmMeasurement, RMM_GRANULE,
+};
 
 use crate::realm_comid::RealmEndorsementsComid;
 
@@ -35,7 +37,7 @@ pub struct RealmConfig {
     ram_ranges: BTreeMap<GuestAddress, u64>,
     // The primary REC. We assume only the primary vCPU is runnable and the
     // others are booted with PSCI.
-    rec: Option<rmm::RmiRecParams>,
+    rec: Option<RmiRecParams>,
     print_b64: bool,
 
     /// The Realm Personalization Value.
@@ -141,11 +143,7 @@ impl RealmConfig {
             return Err(RealmError::Config("only one REC is supported".to_string()));
         }
 
-        self.rec = Some(rmm::RmiRecParams::new(
-            rmm::RmiRecCreateFlags::RUNNABLE,
-            pc,
-            gprs,
-        ));
+        self.rec = Some(RmiRecParams::new(RmiRecCreateFlags::RUNNABLE, pc, gprs));
         Ok(())
     }
 

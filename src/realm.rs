@@ -8,7 +8,12 @@ use std::fmt::{self, Display};
 
 use crate::utils::*;
 use crate::vmm::{BlobStorage, VmmError};
-use rmm::{self, RmiHashAlgorithm, RmmError, RmmRealmMeasurement, RMM_GRANULE};
+use rmm::{
+    RmiHashAlgorithm, RmiRealmFlags, RmiRealmParams, RmiRecParams, RmmDataFlags,
+    RmmError, RmmMeasurementDescriptorData, RmmMeasurementDescriptorRec,
+    RmmMeasurementDescriptorRipas, RmmRealmMeasurement, RMM_GRANULE,
+    RMM_REALM_MEASUREMENT_WIDTH,
+};
 
 pub use crate::realm_config::RealmConfig;
 pub use crate::realm_params::RealmParams;
@@ -273,7 +278,7 @@ impl Realm {
             None => Err(RealmError::Uninitialized("hash algorithm".to_string())),
             Some(RmiHashAlgorithm::RmiHashSha256) => {
                 let h = sha::sha256(data);
-                let mut measurement = [0; rmm::RMM_REALM_MEASUREMENT_SIZE];
+                let mut measurement = [0; RMM_REALM_MEASUREMENT_WIDTH];
                 measurement[..32].copy_from_slice(&h);
                 Ok(measurement)
             }
@@ -285,7 +290,7 @@ impl Realm {
     /// Initialize the Realm state. Corresponds to RMI_REALM_CREATE.
     ///
     pub fn rim_realm_create(&mut self, params: &RealmParams) -> Result<()> {
-        let mut flags = rmm::RmiRealmFlags::empty();
+        let mut flags = RmiRealmFlags::empty();
         let mut sve_vl = 0;
 
         log::debug!("Measuring {:#?}", params);
@@ -308,15 +313,15 @@ impl Realm {
         };
         if let Some(v) = params.sve_vl {
             if v > 0 {
-                flags.insert(rmm::RmiRealmFlags::SVE);
+                flags.insert(RmiRealmFlags::SVE);
                 sve_vl = sve_vl_to_vq(v);
             }
         }
         if params.lpa2.unwrap_or(false) {
-            flags.insert(rmm::RmiRealmFlags::LPA2);
+            flags.insert(RmiRealmFlags::LPA2);
         }
         let pmu_num_ctrs = if params.pmu.unwrap_or(false) {
-            flags.insert(rmm::RmiRealmFlags::PMU);
+            flags.insert(RmiRealmFlags::PMU);
             params
                 .pmu_num_ctrs
                 .ok_or(RealmError::Uninitialized("pmu_num_ctrs".to_string()))?
@@ -325,7 +330,7 @@ impl Realm {
         };
 
         assert!(num_bps > 1 && num_wps > 1);
-        let params = rmm::RmiRealmParams::new(
+        let params = RmiRealmParams::new(
             flags,
             s2sz,
             num_wps - 1,
@@ -382,10 +387,10 @@ impl Realm {
 
             let content_hash = self.measure_bytes(page)?;
 
-            let measurement_desc = rmm::RmmMeasurementDescriptorData::new(
+            let measurement_desc = RmmMeasurementDescriptorData::new(
                 &self.measurements.rim,
                 aligned_addr + off as u64,
-                rmm::RmmDataFlags::MEASURE,
+                RmmDataFlags::MEASURE,
                 &content_hash,
             );
             let bytes = measurement_desc.to_bytes()?;
@@ -415,10 +420,10 @@ impl Realm {
         );
 
         for off in (0..size).step_by(GRANULE) {
-            let measurement_desc = rmm::RmmMeasurementDescriptorData::new(
+            let measurement_desc = RmmMeasurementDescriptorData::new(
                 &self.measurements.rim,
                 aligned_addr + off,
-                rmm::RmmDataFlags::empty(),
+                RmmDataFlags::empty(),
                 &[0; 64], // content_hash
             );
             let bytes = measurement_desc.to_bytes()?;
@@ -456,7 +461,7 @@ impl Realm {
             // Find the largest block size that fits this range
             let block_size = find_block_size(cur, top, self.block_sizes);
             assert!(block_size >= RMM_GRANULE && is_aligned(block_size, RMM_GRANULE));
-            let measurement_desc = rmm::RmmMeasurementDescriptorRipas::new(
+            let measurement_desc = RmmMeasurementDescriptorRipas::new(
                 &self.measurements.rim,
                 cur,
                 cur + block_size,
@@ -475,14 +480,14 @@ impl Realm {
     /// Measure one REC structure, add it to the RIM. This corresponds to a call
     /// to RMI_REC_CREATE.
     ///
-    pub fn rim_rec_create(&mut self, rec: &rmm::RmiRecParams) -> Result<()> {
+    pub fn rim_rec_create(&mut self, rec: &RmiRecParams) -> Result<()> {
         let bytes = rec.to_bytes()?;
         let content_hash = self.measure_bytes(&bytes)?;
 
         log::debug!("Measuring REC");
 
         let measurement_desc =
-            rmm::RmmMeasurementDescriptorRec::new(&self.measurements.rim, &content_hash);
+            RmmMeasurementDescriptorRec::new(&self.measurements.rim, &content_hash);
         let bytes = measurement_desc.to_bytes()?;
         self.measurements.rim = self.measure_bytes(&bytes)?;
 
@@ -499,7 +504,7 @@ impl Realm {
             return Err(RealmError::Parameter(format!("REM {index}")));
         }
 
-        const REM_DATA_SIZE: usize = rmm::RMM_REALM_MEASUREMENT_SIZE;
+        const REM_DATA_SIZE: usize = RMM_REALM_MEASUREMENT_WIDTH;
         if buf.len() > REM_DATA_SIZE {
             return Err(RealmError::Parameter(format!(
                 "REM measurement value size {} > REM_DATA_SIZE",
