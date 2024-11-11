@@ -205,7 +205,7 @@ impl RealmConfig {
 
         let m = &mut endorsements.triples.reference_values[0].measurement.value;
         m.raw_value.vtype = "bytes".to_string();
-        m.raw_value.value = self.personalization_value.as_base64();
+        m.raw_value.value = self.personalization_value.to_base64();
         m.integrity_registers.rim.key_type = "text".to_string();
         m.integrity_registers.rem0.key_type = "text".to_string();
         m.integrity_registers.rem1.key_type = "text".to_string();

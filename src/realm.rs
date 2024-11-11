@@ -96,7 +96,7 @@ impl PersonalizationValue {
     }
 
     /// Encode as base64 string
-    pub fn as_base64(&self) -> String {
+    pub fn to_base64(&self) -> String {
         base64_standard.encode(self.0)
     }
 }
@@ -120,7 +120,7 @@ impl Measurements {
     /// Return an array of five reference values encoded in base64 strings. The
     /// values are truncated in function of the hash algorithm.
     #[allow(dead_code)]
-    pub fn as_base64_array(&self) -> [String; 5] {
+    pub fn to_base64_array(&self) -> [String; 5] {
         assert!(self.length == 32 || self.length == 64);
         [
             base64_standard.encode(&self.rim[..self.length]),
@@ -318,7 +318,7 @@ impl Realm {
         // Since we know the IPA size, we can initialize the block size.
         self.block_sizes = translation_block_sizes(s2sz);
 
-        let bytes = params.as_bytes()?;
+        let bytes = params.to_bytes()?;
         self.measurements.rim = self.measure_bytes(&bytes)?;
         self.debug_rim();
 
@@ -366,7 +366,7 @@ impl Realm {
                 rmm::RMM_DATA_F_MEASURE, // flags
                 &content_hash,
             );
-            let bytes = measurement_desc.as_bytes()?;
+            let bytes = measurement_desc.to_bytes()?;
             self.measurements.rim = self.measure_bytes(&bytes)?;
         }
 
@@ -399,7 +399,7 @@ impl Realm {
                 0,        // flags
                 &[0; 64], // content_hash
             );
-            let bytes = measurement_desc.as_bytes()?;
+            let bytes = measurement_desc.to_bytes()?;
             self.measurements.rim = self.measure_bytes(&bytes)?;
         }
 
@@ -439,7 +439,7 @@ impl Realm {
                 cur,
                 cur + block_size,
             );
-            let bytes = measurement_desc.as_bytes()?;
+            let bytes = measurement_desc.to_bytes()?;
             self.measurements.rim = self.measure_bytes(&bytes)?;
 
             cur += block_size;
@@ -454,14 +454,14 @@ impl Realm {
     /// to RMI_REC_CREATE.
     ///
     pub fn rim_rec_create(&mut self, rec: &rmm::RmiRecParams) -> Result<()> {
-        let bytes = rec.as_bytes()?;
+        let bytes = rec.to_bytes()?;
         let content_hash = self.measure_bytes(&bytes)?;
 
         log::debug!("Measuring REC");
 
         let measurement_desc =
             rmm::RmmMeasurementDescriptorRec::new(&self.measurements.rim, &content_hash);
-        let bytes = measurement_desc.as_bytes()?;
+        let bytes = measurement_desc.to_bytes()?;
         self.measurements.rim = self.measure_bytes(&bytes)?;
 
         self.debug_rim();

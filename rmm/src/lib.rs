@@ -122,7 +122,7 @@ impl RmiRealmParams {
         }
     }
     /// Convert the packed struct to bytes
-    pub fn as_bytes(&self) -> Result<Vec<u8>> {
+    pub fn to_bytes(&self) -> Result<Vec<u8>> {
         let mut bytes = bincode::serialize(self)?;
         assert!(bytes.len() == mem::size_of::<RmiRealmParams>());
         bytes.resize(RMI_REALM_PARAMS_SIZE, 0);
@@ -158,7 +158,7 @@ impl RmiRecParams {
     }
 
     /// Convert the packed struct to bytes
-    pub fn as_bytes(&self) -> Result<Vec<u8>> {
+    pub fn to_bytes(&self) -> Result<Vec<u8>> {
         let mut bytes = bincode::serialize(self)?;
         assert!(bytes.len() == mem::size_of::<RmiRecParams>());
         bytes.resize(RMI_REC_PARAMS_SIZE, 0);
@@ -198,7 +198,7 @@ impl RmmMeasurementDescriptorData {
             content: *content,
         }
     }
-    pub fn as_bytes(&self) -> Result<Vec<u8>> {
+    pub fn to_bytes(&self) -> Result<Vec<u8>> {
         assert!(self.desc_type == 0);
         let mut bytes = bincode::serialize(self)?;
         assert!(bytes.len() == mem::size_of::<RmmMeasurementDescriptorData>());
@@ -233,7 +233,7 @@ impl RmmMeasurementDescriptorRec {
             content: *content,
         }
     }
-    pub fn as_bytes(&self) -> Result<Vec<u8>> {
+    pub fn to_bytes(&self) -> Result<Vec<u8>> {
         assert!(self.desc_type == 1);
         let mut bytes = bincode::serialize(self)?;
         assert!(bytes.len() == mem::size_of::<RmmMeasurementDescriptorRec>());
@@ -270,7 +270,7 @@ impl RmmMeasurementDescriptorRipas {
             top,
         }
     }
-    pub fn as_bytes(&self) -> Result<Vec<u8>> {
+    pub fn to_bytes(&self) -> Result<Vec<u8>> {
         assert!(self.desc_type == 2);
         let mut bytes = bincode::serialize(self)?;
         assert!(bytes.len() == mem::size_of::<RmmMeasurementDescriptorRipas>());
