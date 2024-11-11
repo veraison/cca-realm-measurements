@@ -1,6 +1,7 @@
 // Structures and values defined by the RMM specification v1.0-rel0.
 // At the moment, this library only provides the definitions needed for RIM
 // calculation.
+use bitflags::bitflags;
 use core::mem;
 use std::str::FromStr;
 
@@ -10,19 +11,34 @@ use serde::{Deserialize, Serialize, Serializer};
 pub const RMM_REALM_MEASUREMENT_SIZE: usize = 64;
 pub type RmmRealmMeasurement = [u8; RMM_REALM_MEASUREMENT_SIZE];
 
-pub type RmiRealmFlags = u64;
+bitflags! {
+/// Flags provided by the host during Realm creation
+#[derive(Default, Debug, Clone, Copy, Serialize, PartialEq, Eq, Hash)]
+pub struct RmiRealmFlags: u64 {
+    /// Enable Large Physical Addresses
+    const LPA2 = 1 << 0;
+    /// Enable Scalable Vector Extension
+    const SVE = 1 << 1;
+    /// Enable Power Management Unit
+    const PMU = 1 << 2;
+}
+}
 
-pub const RMI_REALM_F_LPA2: u64 = 1 << 0;
-pub const RMI_REALM_F_SVE: u64 = 1 << 1;
-pub const RMI_REALM_F_PMU: u64 = 1 << 2;
+bitflags! {
+/// Flags provided by the Host during REC creation
+pub struct RmiRecCreateFlags: u64 {
+    /// The REC is run at reset
+    const RUNNABLE = 1 << 0;
+}
+}
 
-pub type RmiRecCreateFlags = u64;
-
-pub const RMI_REC_CREATE_F_RUNNABLE: u64 = 1 << 0;
-
-pub type RmmDataFlags = u64;
-
-pub const RMM_DATA_F_MEASURE: u64 = 1 << 0;
+bitflags! {
+/// Flags provided by the Host during DATA Granule creation
+pub struct RmmDataFlags: u64 {
+    /// Measure the content of the DATA granule
+    const MEASURE = 1 << 0;
+}
+}
 
 pub const RMM_GRANULE: u64 = 0x1000;
 
@@ -85,7 +101,7 @@ fn serialize_array<S: Serializer, const N: usize>(
 #[derive(Clone, Debug, Serialize, PartialEq, Default)]
 #[repr(C, packed)]
 pub struct RmiRealmParams {
-    pub flags: RmiRealmFlags,
+    flags: u64,
     pub s2sz: u8,
     _empty1: [u8; 7],
     pub sve_vl: u8,
@@ -111,7 +127,7 @@ impl RmiRealmParams {
         hash_algo: RmiHashAlgorithm,
     ) -> RmiRealmParams {
         RmiRealmParams {
-            flags,
+            flags: flags.bits(),
             s2sz,
             num_wps,
             num_bps,
@@ -135,7 +151,7 @@ impl RmiRealmParams {
 #[derive(Clone, Debug, Serialize, PartialEq)]
 #[repr(C, packed)]
 pub struct RmiRecParams {
-    pub flags: RmiRecCreateFlags,
+    flags: u64,
     #[serde(serialize_with = "serialize_array")]
     _empty1: [u8; 0x200 - 8],
     pub pc: u64,
@@ -148,8 +164,8 @@ pub const RMI_REC_PARAMS_SIZE: usize = 0x1000;
 impl RmiRecParams {
     pub fn new(flags: RmiRecCreateFlags, pc: u64, gprs: [u64; 8]) -> RmiRecParams {
         RmiRecParams {
+            flags: flags.bits(),
             // Can't use default() because it doesn't work with large arrays.
-            flags,
             _empty1: [0; 0x200 - 8],
             pc,
             _empty2: [0; 0x100 - 8],
@@ -175,7 +191,7 @@ pub struct RmmMeasurementDescriptorData {
     #[serde(serialize_with = "serialize_array")]
     rim: RmmRealmMeasurement,
     ipa: u64,
-    flags: RmmDataFlags,
+    flags: u64,
     #[serde(serialize_with = "serialize_array")]
     content: RmmRealmMeasurement,
 }
@@ -194,7 +210,7 @@ impl RmmMeasurementDescriptorData {
             len: RMM_REALM_MEASUREMENT_DESCRIPTOR_DATA_SIZE as u64,
             rim: *rim,
             ipa,
-            flags,
+            flags: flags.bits(),
             content: *content,
         }
     }

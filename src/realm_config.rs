@@ -142,7 +142,7 @@ impl RealmConfig {
         }
 
         self.rec = Some(rmm::RmiRecParams::new(
-            rmm::RMI_REC_CREATE_F_RUNNABLE,
+            rmm::RmiRecCreateFlags::RUNNABLE,
             pc,
             gprs,
         ));

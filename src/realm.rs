@@ -285,7 +285,7 @@ impl Realm {
     /// Initialize the Realm state. Corresponds to RMI_REALM_CREATE.
     ///
     pub fn rim_realm_create(&mut self, params: &RealmParams) -> Result<()> {
-        let mut flags = 0;
+        let mut flags = rmm::RmiRealmFlags::empty();
         let mut sve_vl = 0;
 
         log::debug!("Measuring {:#?}", params);
@@ -308,15 +308,15 @@ impl Realm {
         };
         if let Some(v) = params.sve_vl {
             if v > 0 {
-                flags |= rmm::RMI_REALM_F_SVE;
+                flags.insert(rmm::RmiRealmFlags::SVE);
                 sve_vl = sve_vl_to_vq(v);
             }
         }
         if params.lpa2.unwrap_or(false) {
-            flags |= rmm::RMI_REALM_F_LPA2;
+            flags.insert(rmm::RmiRealmFlags::LPA2);
         }
         let pmu_num_ctrs = if params.pmu.unwrap_or(false) {
-            flags |= rmm::RMI_REALM_F_PMU;
+            flags.insert(rmm::RmiRealmFlags::PMU);
             params
                 .pmu_num_ctrs
                 .ok_or(RealmError::Uninitialized("pmu_num_ctrs".to_string()))?
@@ -385,7 +385,7 @@ impl Realm {
             let measurement_desc = rmm::RmmMeasurementDescriptorData::new(
                 &self.measurements.rim,
                 aligned_addr + off as u64,
-                rmm::RMM_DATA_F_MEASURE, // flags
+                rmm::RmmDataFlags::MEASURE,
                 &content_hash,
             );
             let bytes = measurement_desc.to_bytes()?;
@@ -418,7 +418,7 @@ impl Realm {
             let measurement_desc = rmm::RmmMeasurementDescriptorData::new(
                 &self.measurements.rim,
                 aligned_addr + off,
-                0,        // flags
+                rmm::RmmDataFlags::empty(),
                 &[0; 64], // content_hash
             );
             let bytes = measurement_desc.to_bytes()?;
