@@ -1,4 +1,5 @@
 use memmap2::Mmap;
+use std::fmt::{self, Debug};
 use std::fs::File;
 use std::io::{Read, Write};
 
@@ -38,7 +39,7 @@ type Result<T> = VmmResult<T>;
 pub type GuestAddress = u64;
 
 /// The kind of Generic Interrupt Controller implemented in the VM
-#[derive(Default)]
+#[derive(Copy, Clone, Debug, Default)]
 pub enum GicModel {
     /// version 3
     #[default]
@@ -48,7 +49,7 @@ pub enum GicModel {
 }
 
 /// Blob stored as a file
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct BlobStorageFile {
     /// The filename
     pub name: String,
@@ -103,8 +104,14 @@ impl Clone for BlobStorageFile {
     }
 }
 
+impl PartialEq for BlobStorageFile {
+    fn eq(&self, other: &Self) -> bool {
+        self.name == other.name
+    }
+}
+
 /// The storage of an image loaded into the guest
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum BlobStorage {
     /// A file
     File(BlobStorageFile),
@@ -143,8 +150,14 @@ impl BlobStorage {
     }
 }
 
+impl Default for BlobStorage {
+    fn default() -> Self {
+        Self::Bytes(vec![])
+    }
+}
+
 /// An image loaded into the guest
-#[derive(Debug)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct VmmBlob {
     /// Base address of the image in the guest
     pub guest_start: GuestAddress,
@@ -316,6 +329,12 @@ pub trait DTBGenerator {
             .add_rim_blob(blob)
             .map_err(|e| VmmError::Realm(e.to_string()))?;
         Ok(())
+    }
+}
+
+impl Debug for dyn DTBGenerator {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "DTBGenerator")
     }
 }
 

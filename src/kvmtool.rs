@@ -168,19 +168,21 @@ pub struct KvmtoolArgs {
     restricted_mem: bool,
 }
 
-#[derive(Default, PartialEq)]
+#[derive(Copy, Clone, Debug, Default, PartialEq)]
 enum VirtioTransport {
     #[default]
     Pci,
     Mmio,
 }
 
+#[derive(Copy, Clone, Debug, Default, PartialEq)]
 enum DeviceType {
+    #[default]
     Virtio,
 }
 
 /// Kvmtool configuration
-#[derive(Default)]
+#[derive(Clone, Debug, Default)]
 pub struct KvmtoolParams {
     /// Number of vCPUs
     pub num_cpus: usize,

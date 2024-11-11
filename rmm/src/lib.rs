@@ -82,7 +82,7 @@ fn serialize_array<S: Serializer, const N: usize>(
 /// RmiRealmParams with only the fields that are measured for the RIM. The rest
 /// is set to zero (DEN0137 1.0-rel0 B4.3.9.4 RMI_REALM_CREATE initialization of
 /// RIM)
-#[derive(Serialize, Default)]
+#[derive(Clone, Debug, Serialize, PartialEq, Default)]
 #[repr(C, packed)]
 pub struct RmiRealmParams {
     pub flags: RmiRealmFlags,
@@ -132,7 +132,7 @@ impl RmiRealmParams {
 
 /// RmiRecParams with only the fields that are measured for the RIM. The rest is
 /// set to zero (DEN0137 1.0-rel0 B4.3.12.4 RMI_REC_CREATE extension of RIM)
-#[derive(Serialize)]
+#[derive(Clone, Debug, Serialize, PartialEq)]
 #[repr(C, packed)]
 pub struct RmiRecParams {
     pub flags: RmiRecCreateFlags,
@@ -166,7 +166,7 @@ impl RmiRecParams {
     }
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Debug, Serialize, PartialEq)]
 #[repr(C, packed)]
 pub struct RmmMeasurementDescriptorData {
     desc_type: u8,
@@ -207,7 +207,7 @@ impl RmmMeasurementDescriptorData {
     }
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Debug, Serialize, PartialEq)]
 #[repr(C, packed)]
 pub struct RmmMeasurementDescriptorRec {
     desc_type: u8,
@@ -242,7 +242,7 @@ impl RmmMeasurementDescriptorRec {
     }
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Debug, Serialize, PartialEq)]
 #[repr(C, packed)]
 pub struct RmmMeasurementDescriptorRipas {
     desc_type: u8,

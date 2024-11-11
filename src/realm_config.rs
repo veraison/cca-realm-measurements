@@ -23,7 +23,7 @@ type Result<T> = core::result::Result<T, RealmError>;
 /// High level configuration of the Realm. Compared to the low-level [Realm]
 /// state, this adds some restrictions on the way the Realm is constructed, in
 /// order to follow a strict VMM specification (`docs/realm-vm.md`).
-#[derive(Default)]
+#[derive(Clone, Debug, PartialEq, Default)]
 pub struct RealmConfig {
     // Sorted list of blobs measured into the RIM
     rim_blobs: BTreeMap<GuestAddress, VmmBlob>,
@@ -148,7 +148,7 @@ impl RealmConfig {
     /// guest RAM, then data granules in ascending order, then the RECs, then
     /// unmeasured data (log).
     fn compute_rim(&mut self) -> Result<Realm> {
-        let mut realm = Realm::default();
+        let mut realm = Realm::new();
 
         realm.rim_realm_create(&self.params)?;
 

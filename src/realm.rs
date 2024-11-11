@@ -4,6 +4,7 @@
 ///
 use base64::{engine::general_purpose::STANDARD as base64_standard, Engine as _};
 use openssl::sha;
+use std::fmt::{self, Display};
 
 use crate::utils::*;
 use crate::vmm::{BlobStorage, VmmError};
@@ -43,11 +44,21 @@ type Result<T> = core::result::Result<T, RealmError>;
 /// instance. Multiple instances with the same measurements can optionally be
 /// distinguished by a personalization value.
 ///
+#[derive(Clone, Debug, PartialEq)]
 pub struct PersonalizationValue([u8; 64]);
 
 impl Default for PersonalizationValue {
     fn default() -> Self {
         Self([0; 64])
+    }
+}
+
+impl Display for PersonalizationValue {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for c in self.0 {
+            write!(f, "{:02x}", c)?;
+        }
+        Ok(())
     }
 }
 
@@ -106,7 +117,7 @@ impl PersonalizationValue {
 /// initial VM state, and four Realm Extensible Measurements extended at
 /// runtime.
 ///
-#[derive(Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Measurements {
     /// the initial measurement
     pub rim: RmmRealmMeasurement,
@@ -202,7 +213,7 @@ fn translation_block_sizes(ipa_bits: u8) -> u64 {
 ///
 /// Represents the Realm state during and after initialization.
 ///
-#[derive(Default)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Realm {
     hash_algo: Option<RmiHashAlgorithm>,
     // The RIPAS calls depend on the mapping block sizes, which depend on
@@ -213,6 +224,11 @@ pub struct Realm {
 }
 
 impl Realm {
+    /// Return a new Realm, with empty measurements
+    pub fn new() -> Self {
+        Self::default()
+    }
+
     /// Return a string representation of the current measurements
     ///
     /// # Arguments
@@ -577,6 +593,8 @@ mod tests {
                 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
             ]
         );
+
+        assert_eq!(rpv.to_string(), "0abc0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000");
 
         let s = "";
         rpv.parse(s)?;

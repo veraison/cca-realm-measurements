@@ -36,7 +36,7 @@ const CLOUDHV_SPI_UART: u32 = 0xb;
 /// Cloud hypervisor arguments.
 // Define anything that could be passed to cloud-hypervisor, even those we won't
 // inspect ourself, so the arg parser doesn't complain.
-#[derive(Debug, clap::Args)]
+#[derive(Debug, Clone, clap::Args)]
 pub struct CloudHVArgs {
     #[arg(long)]
     cpus: Option<String>,

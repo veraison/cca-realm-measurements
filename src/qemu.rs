@@ -52,7 +52,7 @@ const QEMU_DTB_SIZE: u64 = 1024 * KIB;
 const QEMU_LOG_SIZE: u64 = 64 * KIB;
 
 /// QEMU configuration
-#[derive(Default)]
+#[derive(Clone, Debug, Default)]
 pub struct QemuParams {
     num_cpus: usize,
     mem_size: u64,

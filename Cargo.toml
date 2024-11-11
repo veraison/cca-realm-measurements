@@ -29,6 +29,9 @@ num-traits = "0.2.19"
 thiserror = "1.0.64"
 memmap2 = "0.9.5"
 
+[lints.rust]
+missing_debug_implementations = "warn"
+
 [lints.clippy]
 # Suggestions are less readable
 manual_range_contains = "allow"

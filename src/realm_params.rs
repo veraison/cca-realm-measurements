@@ -50,7 +50,7 @@ fn restrict_val<T: Copy + std::cmp::PartialOrd>(old: &mut Option<T>, new: T) {
 /// capabilities, restricted by both the non-secure and the Realm hypervisor.
 /// For example, if HW and KVM support 10 PMU counters but RMM doesn't then
 /// pmu_num_ctrs is 0.
-#[derive(Debug, Parser, Default, Deserialize)]
+#[derive(Clone, Debug, Parser, Default, Deserialize, PartialEq)]
 #[command(next_help_heading = "Host capabilities")]
 #[serde(deny_unknown_fields)]
 pub struct RealmParams {
