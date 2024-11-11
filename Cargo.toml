@@ -2,6 +2,11 @@ workspace = { members = ["rmm"] }
 
 [package]
 name = "realm-token"
+description = "Compute the Realm Initial and Extensible Measurements for Arm CCA"
+authors = ["Jean-Philippe Brucker <jean-philippe@linaro.org>"]
+repository = "https://git.codelinaro.org/linaro/dcap/realm-token"
+keywords = ["arm", "cca", "realm", "attestation", "confidential"]
+categories = ["virtualization"]
 version = "0.1.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
