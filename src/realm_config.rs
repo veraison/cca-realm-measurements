@@ -97,6 +97,11 @@ impl RealmConfig {
         Ok(())
     }
 
+    /// Set Realm Personalization Value
+    pub fn set_personalization_value(&mut self, rpv: PersonalizationValue) {
+        self.personalization_value = rpv;
+    }
+
     /// Add a range of RAM, to be initialized with INIT_RIPAS
     pub fn add_ram(&mut self, base: GuestAddress, size: u64) -> Result<()> {
         if self.ram_ranges.insert(base, size).is_some() {

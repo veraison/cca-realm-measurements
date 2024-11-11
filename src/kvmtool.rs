@@ -382,7 +382,7 @@ fn parse_cmdline(
     }
 
     if let Some(v) = &args.realm_pv {
-        realm.personalization_value.copy(v)?;
+        realm.set_personalization_value(v.as_bytes().try_into()?);
     }
 
     let last_ipa = kvmtool.mem_base + kvmtool.mem_size - 1;

@@ -167,7 +167,9 @@ fn parse_object(
 
         match prop {
             "measurement-algo" => realm.set_measurement_algo(val)?,
-            "personalization-value" => realm.personalization_value.parse(val)?,
+            "personalization-value" => {
+                realm.set_personalization_value(val.parse()?);
+            }
             "measurement-log" => qemu.has_measurement_log = true,
             "id" => (),
             _ => bail!("unsupported rme-guest property '{prop}'"),

@@ -157,7 +157,9 @@ fn parse_platform(arg: &Option<String>, realm: &mut RealmConfig) -> Result<()> {
         };
 
         match name {
-            "personalization_value" => realm.personalization_value.parse(val)?,
+            "personalization_value" => {
+                realm.set_personalization_value(val.as_bytes().try_into()?)
+            }
             "measurement_algo" => realm.set_measurement_algo(val)?,
             _ => (),
         }
