@@ -60,7 +60,7 @@ pub fn sve_vl_to_vq(vl: u16) -> u8 {
     ((vl / 128) - 1) as u8
 }
 
-/// Parse a string with optional multiplier suffix '<n>[BKMGTP]'. Return the
+/// Parse a string with optional multiplier suffix `<n>[BKMGTP]`. Return the
 /// size in bytes. Default multiplier is MiB.
 pub fn parse_memory_size(s: &str) -> Result<u64> {
     let mut multiplier = MIB;

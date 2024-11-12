@@ -11,12 +11,12 @@ Build with:
 
 Run with:
 
-    target/debug/realm-token [options] <VMM> [vmm-args]
+    target/debug/realm-measurements [options] <VMM> [vmm-args]
 
 In the following example, the realm is started with kvmtool as VMM, using
 direct kernel boot. The host is QEMU TCG.
 
-    realm-token -c configs/qemu-max-8.2.conf -c configs/kvm.conf            (1)
+    realm-measurement -c configs/qemu-max-8.2.conf -c configs/kvm.conf      (1)
         -k ~/build/linux-cca/arch/arm64/boot/Image                          (2)
         --output-dtb ~/vm/shr/kvmtool-gen.dtb                               (3)
         kvmtool                                                             (4)
@@ -68,13 +68,13 @@ Reference Value file (using templates in samples/):
 
 A config file gen-run-vmm.cfg for this script could be:
 
-    REALM_TOKEN=$HOME/src/realm-token/target/debug/realm-token
+    REALM_MEASUREMENTS=$HOME/src/realm-measurements/target/debug/realm-measurements
     KERNEL=$HOME/build/linux/arch/arm64/boot/Image
     INITRD=$HOME/build/buildroot/images/rootfs.cpio
     EDK2_DIR=$HOME/src/edk2/
     OUTPUT_SCRIPT_DIR=$HOME/shr/
     OUTPUT_DTB_DIR=$HOME/shr/
-    CONFIGS_DIR=$HOME/src/realm-token/configs/
+    CONFIGS_DIR=$HOME/src/realm-measurements/configs/
 
 
 Event log
@@ -132,7 +132,7 @@ run the payload in the same environment, on a machine that we own and trust.
 But neither client nor verifier might afford to own such hardware. In addition,
 many changes to VM parameters such as number of vCPUs, amount of memory,
 devices, would require running the whole payload again in order to collect the
-corresponding token. Here we explore ways to calculate a Realm Token
+corresponding token. Here we provide ways to calculate a Realm Token
 independently from the Realm environment.
 
 

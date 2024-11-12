@@ -12,12 +12,12 @@
 //! given realm-token for those reference values, and ensures that the Realm
 //! is running what you expect.
 //!
-//! The `realm-token` tool transforms a VMM command-line into the
+//! The `realm-measurements` tool transforms a VMM command-line into the
 //! corresponding measurements.
 //!
 //! Example
 //! ```bash
-//! realm-token
+//! realm-measurements
 //!     -c configs/qemu-sbsa-9.1.conf   # Host machine
 //!     -c configs/rmm-1.0-rel0.conf    # RMM parameters
 //!     -k Image                        # Kernel image
@@ -38,8 +38,7 @@
 //! Example
 //! ```rust,no_run
 //! use std::fs;
-//! use realm_token::realm::Realm;
-//! use realm_token::event_log::{EventLogParser, MeasurementImages};
+//! use cca_realm_measurements::{Realm, EventLogParser, MeasurementImages};
 //!
 //! // Collect the digests of images loaded into the Realm with:
 //! // # sha256sum /path/to/image/dir/* > /tmp/images.digests
@@ -79,6 +78,9 @@ pub mod event_log;
 pub mod realm;
 /// VMM tools
 pub mod vmm;
+
+pub use event_log::{DTBTemplates, EventLogParser, MeasurementImages};
+pub use realm::Realm;
 
 /// RMM definitions
 pub use rmm;

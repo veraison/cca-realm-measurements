@@ -12,7 +12,7 @@ use crate::qemu::QemuArgs;
 use crate::realm_params::RealmParams;
 
 // This is the help blurb:
-/// Generate a Realm token corresponding to a given VM configuration and
+/// Generate Realm measurements corresponding to a given VM configuration and
 /// environment. Can also generate firmware tables (DTB, ACPI) to be provided to
 /// the VMM.
 #[derive(Debug, Parser)]
@@ -30,9 +30,10 @@ pub struct Args {
     #[arg(long, value_name = "file")]
     pub input_dtb: Option<String>,
 
-    /// Do not generate Realm token (only validate parameters and generate DTB)
+    /// Do not generate Realm measurements (only validate parameters and
+    /// generate DTB)
     #[arg(long)]
-    pub no_token: bool,
+    pub no_measurements: bool,
 
     /// Display measurement encoded in base64, instead of raw hex
     #[arg(long)]

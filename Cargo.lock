@@ -150,6 +150,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "cca-realm-measurements"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "base64 0.22.1",
+ "bincode",
+ "byteorder",
+ "clap",
+ "fallible-iterator",
+ "log",
+ "memmap2",
+ "num-derive",
+ "num-traits",
+ "openssl",
+ "rmm",
+ "serde",
+ "serde_json",
+ "stderrlog",
+ "thiserror",
+ "toml",
+ "uefi-eventlog",
+ "vm-fdt",
+]
+
+[[package]]
 name = "cfg-if"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -530,31 +555,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b5b9d34b8991d19d98081b46eacdd8eb58c6f2b201139f7c5f643cc155a633af"
 dependencies = [
  "proc-macro2",
-]
-
-[[package]]
-name = "realm-token"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "base64 0.22.1",
- "bincode",
- "byteorder",
- "clap",
- "fallible-iterator",
- "log",
- "memmap2",
- "num-derive",
- "num-traits",
- "openssl",
- "rmm",
- "serde",
- "serde_json",
- "stderrlog",
- "thiserror",
- "toml",
- "uefi-eventlog",
- "vm-fdt",
 ]
 
 [[package]]

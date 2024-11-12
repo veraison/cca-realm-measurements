@@ -1,7 +1,7 @@
 #![allow(non_camel_case_types)]
 use bincode::serialize;
 /// Build a fake event log to perform tests
-use realm_token::{event_log::EventLogParser, realm::Realm};
+use cca_realm_measurements::{EventLogParser, Realm};
 use serde::ser::SerializeTuple;
 use serde::{Serialize, Serializer};
 use uefi_eventlog::EventType;

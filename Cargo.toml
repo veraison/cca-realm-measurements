@@ -3,7 +3,7 @@
 [workspace.package]
 version = "0.1.0"
 authors = ["Jean-Philippe Brucker <jean-philippe@linaro.org>"]
-repository = "https://git.codelinaro.org/linaro/dcap/realm-token"
+repository = "https://github.com/veraison/cca-realm-measurements.git"
 keywords = ["arm", "cca", "realm", "attestation", "confidential"]
 categories = ["virtualization"]
 edition = "2021"
@@ -14,7 +14,7 @@ serde = { version = "1.0.197", features = ["derive"] }
 thiserror = "1.0.64"
 
 [package]
-name = "realm-token"
+name = "cca-realm-measurements"
 description = "Compute the Realm Initial and Extensible Measurements for Arm CCA"
 version.workspace = true
 edition.workspace = true
@@ -23,6 +23,10 @@ repository.workspace = true
 authors.workspace = true
 keywords.workspace = true
 categories.workspace = true
+
+[[bin]]
+name = "realm-measurements"
+path = "src/main.rs"
 
 [dependencies]
 rmm = { path = "rmm/" }

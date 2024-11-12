@@ -243,7 +243,7 @@ impl RealmConfig {
 
     /// Compute Realm Initial Measurement (RIM) and Realm Extensible
     /// Measurements (REM) of the VM. Display or export them.
-    pub fn compute_token(&mut self) -> Result<()> {
+    pub fn compute_measurements(&mut self) -> Result<()> {
         let mut realm = self.compute_rim()?;
 
         for (index, blob) in &mut self.rem_blobs {

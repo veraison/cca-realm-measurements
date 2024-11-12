@@ -5,8 +5,9 @@ Version 0.3
 
 This document specifies the format and construction of a Realm Virtual Machine
 (VM) for Arm CCA[^CCA-intro]. The specification only covers aspects of a VM
-needed for calculating the Realm Token, so that a verifier can independently
-reconstruct the Realm Token and attest the initial state of the Realm.
+needed for calculating the Realm Measurements, so that a verifier can
+independently reconstruct the Realm Token and attest the initial state of the
+Realm.
 
 The hypervisor runs at EL2/EL1 and communicates with RMM[^RMM], while the
 Virtual Machine Monitor (VMM) runs at EL0 and communicates with the hypervisor.
@@ -60,8 +61,8 @@ these rules:
   initializing data granules.
 
 * VMMs create different virtual platforms, whose layout directly affects the
-  Realm Token. The VMM SHOULD create the VM with one of the following platform
-  layouts.
+  Realm Measurements. The VMM SHOULD create the VM with one of the following
+  platform layouts.
 
 
 Kvmtool

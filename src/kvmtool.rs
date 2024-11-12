@@ -226,7 +226,7 @@ impl KvmtoolParams {
     }
 }
 
-/// Parse "-m sz[@addr]" argument
+// Parse "-m sz[@addr]" argument
 fn parse_mem(arg: &Option<String>, kvmtool: &mut KvmtoolParams) -> Result<()> {
     let Some(arg) = arg else {
         // kvmtool picks a default size based on host memory, but we can't

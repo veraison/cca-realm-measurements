@@ -36,12 +36,12 @@ fn main() {
         process::exit(1);
     });
 
-    if args.no_token {
+    if args.no_measurements {
         return;
     }
 
-    if let Err(e) = params.compute_token() {
-        log::error!("Failed to compute token: {e:#}");
+    if let Err(e) = params.compute_measurements() {
+        log::error!("Failed to compute measurements: {e:#}");
         process::exit(1);
     }
 }

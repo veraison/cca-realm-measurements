@@ -1,13 +1,12 @@
-The Realm Token Log
-===================
+The Realm Measurements Log
+==========================
 
-In Arm CCA, the Realm Token contains five hashes describing the state of
-the Realm VM. A verifier attempts to reproduce these hashes to confirm
-that the realm is executing what is expected. The Realm Initial
-Measurement (RIM) is a hash of the initial, pre-boot state of the VM. Four
-Realm Extensible Measurements (REM[0-3]) are hashes of additional components
-measured by firmware, bootloaders, operating system and applications
-running in the Realm.
+In Arm CCA, the Realm Measurements consist of five hashes describing the state
+of the Realm VM. A verifier attempts to reproduce these hashes to confirm that
+the realm is executing what is expected. The Realm Initial Measurement (RIM) is
+a hash of the initial, pre-boot state of the VM. Four Realm Extensible
+Measurements (REM[0-3]) are hashes of additional components measured by
+firmware, bootloaders, operating system and applications running in the Realm.
 
 
 Why is a log needed?

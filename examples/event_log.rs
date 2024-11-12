@@ -1,8 +1,7 @@
 use clap::Parser;
 use std::fs;
 
-use realm_token::event_log::{DTBTemplates, EventLogParser, MeasurementImages};
-use realm_token::realm::Realm;
+use cca_realm_measurements::{DTBTemplates, EventLogParser, MeasurementImages, Realm};
 
 #[derive(Debug, Parser)]
 /// Parse an event log, try to construct the reference values

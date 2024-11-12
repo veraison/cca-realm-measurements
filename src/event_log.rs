@@ -646,8 +646,7 @@ impl<'a> TcgEventLog<'a> {
 /// ```
 /// use std::thread;
 /// use std::sync::Arc;
-/// use realm_token::realm::Realm;
-/// use realm_token::event_log::{MeasurementImages, EventLogParser};
+/// use cca_realm_measurements::{Realm, MeasurementImages, EventLogParser};
 ///
 /// let mut parser = EventLogParser::new();
 /// // [...setup parser config...]

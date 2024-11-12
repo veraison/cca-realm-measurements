@@ -4,7 +4,7 @@ use std::process::ExitCode;
 use clap::Parser;
 use std::fs;
 
-use realm_token::dtb_surgeon::{DTBSurgeon, DefaultDTBSurgeon};
+use cca_realm_measurements::dtb_surgeon::{DTBSurgeon, DefaultDTBSurgeon};
 
 #[derive(Debug, Parser)]
 /// Parse a DTB and output it

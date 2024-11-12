@@ -21,12 +21,12 @@ verbose=false
 separate_console=false
 vmm=qemu
 
-gen_token=false
+gen_measurements=false
 
 : ${CFG:=gen-run-vmm.cfg}
 
 # Try to find a config file containing KERNEL and INITRD
-for cfg in $CFG /usr/share/realm-token/gen-run-vmm.cfg; do
+for cfg in $CFG /usr/share/cca-realm-measurements/gen-run-vmm.cfg; do
     if [ -f "$cfg" ]; then
         source "$cfg"
         break;
@@ -42,8 +42,8 @@ done
 : ${OUTPUT_DTB_DIR:=.}
 
 : ${RVSTORE_DIR:=}
-: ${CONFIGS_DIR:=/usr/share/realm-token/configs}
-: ${REALM_TOKEN:=realm-token}
+: ${CONFIGS_DIR:=/usr/share/cca-realm-measurements/configs}
+: ${REALM_MEASUREMENTS:=realm-measurements}
 
 # Paths for the generated run script
 : ${RUN_KERNEL:=$KERNEL}
@@ -61,7 +61,7 @@ CORIM_OUTPUT=
 
 INPUT_RVSTORE="$RVSTORE_DIR/rv.json"
 
-TEMP=$(getopt -o 'hvT' --long 'help,edk2,disk-boot,disk,gen-token,serial,no-rme,kvmtool,cloudhv,tap,verbose,comid-template:,corim-template:,corim-output:,extcon' -n 'gen-run-vmm' -- "$@")
+TEMP=$(getopt -o 'hvT' --long 'help,edk2,disk-boot,disk,gen-measurements,serial,no-rme,kvmtool,cloudhv,tap,verbose,comid-template:,corim-template:,corim-output:,extcon' -n 'gen-run-vmm' -- "$@")
 if [ $? -ne 0 ]; then
     exit 1
 fi
@@ -117,7 +117,7 @@ while true; do
         ;;
     '--corim-output')
         CORIM_OUTPUT="$2"
-        gen_token=true
+        gen_measurements=true
         shift
         ;;
     '--extcon')
@@ -320,7 +320,7 @@ else # QEMU
     APPEND=(-append "${KPARAMS[*]}")
 fi
 
-if $gen_token; then
+if $gen_measurements; then
     # Try the default sample files
     [ -z "$CORIM_TEMPLATE" ] && CORIM_TEMPLATE=samples/corim-cca-realm.json
     [ -z "$COMID_TEMPLATE" ] && COMID_TEMPLATE=samples/comid-cca-realm.json
@@ -337,12 +337,12 @@ if $gen_token; then
 fi
 
 declare -a extra_args
-$gen_token || extra_args+=(--no-token)
+$gen_measurements || extra_args+=(--no-measurements)
 $verbose && extra_args+=(-v)
 
 # When running the VM, the following only generates a DTB
 set -x
-$REALM_TOKEN \
+$REALM_MEASUREMENTS \
     -c "$CONFIGS_DIR/qemu-max-8.2.conf" -c "$CONFIGS_DIR/kvm.conf" \
     --output-dtb "$OUTPUT_DTB" \
     -k "$KERNEL" \
@@ -353,7 +353,7 @@ $REALM_TOKEN \
     $vmm "${CMD[@]}" "${APPEND[@]}"
 { set +x; } 2>/dev/null
 
-if $gen_token; then
+if $gen_measurements; then
     cocli comid create --template "$COMID_OUTPUT" -o "$tmp"
     cocli corim create --template "$CORIM_TEMPLATE" --comid "$tmp/comid.cbor" \
         --output "$CORIM_OUTPUT"
