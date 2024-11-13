@@ -365,6 +365,8 @@ fn parse_cmdline(
 
     if let Some(p) = &args.params {
         kvmtool.set_bootargs(p);
+    } else {
+        kvmtool.set_bootargs("");
     }
 
     // Update realm params
@@ -549,7 +551,11 @@ impl DTBGenerator for KvmtoolParams {
         // accurately. But really, we should remove this from
         // kvmtool because it's a friggin pain to reproduce in black
         // box mode.)
-        self.bootargs = Some(" console=hvc0 root=/dev/vda rw ".to_string() + bootargs);
+        let mut args = " console=hvc0 root=/dev/vda rw ".to_string();
+        if !bootargs.is_empty() {
+            args = args + " " + bootargs;
+        }
+        self.bootargs = Some(args);
     }
 
     fn set_template(&mut self, template: Vec<u8>) -> VmmResult<()> {

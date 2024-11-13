@@ -169,9 +169,7 @@ declare -a CMD
 declare -a KPARAMS
 
 if $use_virtconsole; then
-    if [ "$vmm" != "kvmtool" ]; then # FIXME: unless we generate the DTB
-        KPARAMS+=(console=hvc0)
-    fi
+    KPARAMS+=(console=hvc0)
 else
     # earlycon needs to be accessed via physical address, which unfortunately
     # depends on the IPA size :(
@@ -218,7 +216,7 @@ if [ "$vmm" = "kvmtool" ]; then
         --pmu
         --network mode=user
         #--9p /mnt/shr0,shr0
-        #--dtb kvmtool-gen.dtb
+        --dtb kvmtool-gen.dtb
         --measurement-log
         --debug
     )
