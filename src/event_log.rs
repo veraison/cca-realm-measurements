@@ -12,7 +12,9 @@ use std::sync::{Arc, RwLock};
 use thiserror::Error;
 use uefi_eventlog::{parsed::ParsedEventData, Event, EventType, ParseSettings, Parser};
 
-use rmm::{RmiHashAlgorithm, RmiRealmFlags, RmiRecCreateFlags, RmiRecParams, RmmError};
+use cca_rmm::{
+    RmiHashAlgorithm, RmiRealmFlags, RmiRecCreateFlags, RmiRecParams, RmmError,
+};
 
 use crate::kvmtool;
 use crate::qemu;

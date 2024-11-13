@@ -82,9 +82,6 @@ pub mod vmm;
 pub use event_log::{DTBTemplates, EventLogParser, MeasurementImages};
 pub use realm::Realm;
 
-/// RMM definitions
-pub use rmm;
-
 // mod realm re-exports these
 mod realm_comid;
 mod realm_config;

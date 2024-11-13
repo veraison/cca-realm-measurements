@@ -393,7 +393,7 @@ pub fn build_params(args: &Args, cloudhv_args: &CloudHVArgs) -> Result<RealmConf
 
         let mut initrd = VmmBlob::from_file(filename, 0);
         // Align on the host page size
-        let initrd_size = align_up(initrd.len()?, rmm::RMM_GRANULE);
+        let initrd_size = align_up(initrd.len()?, cca_rmm::RMM_GRANULE);
         let initrd_start = CLOUDHV_MEM_START + cloudhv.mem_size - initrd_size;
         initrd.guest_start = initrd_start;
         cloudhv.initrd_start = initrd_start;

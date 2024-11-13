@@ -1,6 +1,8 @@
 use clap::Parser;
 use serde::Deserialize;
 
+use cca_rmm::RmiHashAlgorithm;
+
 use crate::realm::RealmError;
 use crate::utils::*;
 
@@ -84,7 +86,7 @@ pub struct RealmParams {
 
     /// Hash algorithm
     #[arg(long)]
-    pub hash_algo: Option<rmm::RmiHashAlgorithm>,
+    pub hash_algo: Option<RmiHashAlgorithm>,
 }
 
 impl RealmParams {

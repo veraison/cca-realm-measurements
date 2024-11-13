@@ -1,7 +1,6 @@
 [workspace]
 
 [workspace.package]
-version = "0.1.0"
 authors = ["Jean-Philippe Brucker <jean-philippe@linaro.org>"]
 repository = "https://github.com/veraison/cca-realm-measurements.git"
 keywords = ["arm", "cca", "realm", "attestation", "confidential"]
@@ -16,7 +15,7 @@ thiserror = "1.0.64"
 [package]
 name = "cca-realm-measurements"
 description = "Compute the Realm Initial and Extensible Measurements for Arm CCA"
-version.workspace = true
+version = "0.1.0"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
@@ -29,7 +28,7 @@ name = "realm-measurements"
 path = "src/main.rs"
 
 [dependencies]
-rmm = { path = "rmm/" }
+cca-rmm = { version = "0.1.0", path = "rmm/" }
 anyhow = "1.0.79"
 clap = { version = "4.5.1", features = ["derive"] }
 openssl = "0.10.63"

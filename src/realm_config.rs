@@ -14,7 +14,7 @@ use crate::realm::*;
 use crate::realm_params::RealmParams;
 use crate::utils::*;
 use crate::vmm::{GuestAddress, VmmBlob};
-use rmm::{
+use cca_rmm::{
     RmiHashAlgorithm, RmiRecCreateFlags, RmiRecParams, RmmRealmMeasurement, RMM_GRANULE,
 };
 

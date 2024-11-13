@@ -8,7 +8,7 @@ use std::fmt::{self, Display};
 
 use crate::utils::*;
 use crate::vmm::{BlobStorage, VmmError};
-use rmm::{
+use cca_rmm::{
     RmiHashAlgorithm, RmiRealmFlags, RmiRealmParams, RmiRecParams, RmmDataFlags,
     RmmError, RmmMeasurementDescriptorData, RmmMeasurementDescriptorRec,
     RmmMeasurementDescriptorRipas, RmmRealmMeasurement, RMM_GRANULE,
