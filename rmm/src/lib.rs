@@ -1,4 +1,4 @@
-//! Structures and values defined by the Realm Management Monirot
+//! Structures and values defined by the Realm Management Monitor
 //!
 //! This library provides structure and value definitions from the RMM
 //! specification v1.0-rel0. For the moment it only provides the definitions
