@@ -33,10 +33,15 @@ doc:
 	cargo doc --workspace
 TESTS += doc
 
-test-dtbs: build-examples
+# Obtain the generated DTB templates
+DTBS = testdata/device-trees
+$(DTBS):
+	git clone -b main https://jpbrucker.net/git/vmm-dtbs $@
+
+test-dtbs: build-examples $(DTBS)
 	@# Parse DTBs, check that the output is stable
-	target/debug/examples/dtb device-trees/kvmtool-3.18.dtb
-	target/debug/examples/dtb device-trees/qemu-9.1.dtb
+	target/debug/examples/dtb $(DTBS)/kvmtool-3.18.dtb
+	target/debug/examples/dtb $(DTBS)/qemu-9.1.dtb
 TESTS += test-dtbs
 
 test: $(TESTS)
