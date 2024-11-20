@@ -49,10 +49,8 @@ done
 : ${RUN_KERNEL:=$KERNEL}
 : ${RUN_INITRD:=$INITRD}
 : ${RUN_EDK2_DIR:=$EDK2_DIR}
-# An ext4 filesystem containing only the userspace
-: ${RUN_ROOTFS:=guest_rootfs}
-# A disk containing an EFI partition with the kernel and bootloader, and
-# another with the userspace
+# A disk containing two partitions: the first is an EFI partition with the
+# kernel and bootloader, and the second is the userspace (e.g. buildroot).
 : ${RUN_DISK:=guest_disk}
 
 COMID_TEMPLATE=
@@ -179,7 +177,7 @@ else
 fi
 
 if ! $use_initrd; then
-    KPARAMS+=(root=/dev/vda)
+    KPARAMS+=(root=/dev/vda2)
 fi
 
 if $use_net_tap; then
@@ -187,6 +185,23 @@ if $use_net_tap; then
     tapaddress=$(cat /sys/class/net/macvtap0/address)
     if [ "$vmm" != "kvmtool" ]; then
         exec 3<>/dev/tap$tapindex
+    fi
+fi
+
+if ! $gen_measurements; then
+    # Rough platform detection
+    if [ -n "$(dmesg | grep FVP)" ]; then
+        GUEST_TTY=/dev/ttyAMA1
+        # FVP 9p implementation is rather restrictive, and doesn't support
+        # several operations, such as locking by QEMU. It's also broken for
+        # edk2. Copy the disk to a safer location.
+        if ! $use_initrd; then
+            cp -v $RUN_DISK /tmp/guest_disk
+            RUN_DISK=/tmp/guest_disk
+        fi
+    else
+        # QEMU machine provides virtio-console
+        GUEST_TTY=/dev/hvc1
     fi
 fi
 
@@ -223,7 +238,7 @@ if [ "$vmm" = "kvmtool" ]; then
     if $use_initrd; then
         CMD+=(-i "$RUN_INITRD")
     else
-        CMD+=(-d "$RUN_ROOTFS")
+        CMD+=(-d "$RUN_DISK")
     fi
 
     if [ -n "${KPARAMS[*]}" ]; then
@@ -248,7 +263,7 @@ elif [ "$vmm" = "cloud-hv" ]; then
         if $use_initrd; then
             CMD+=(--initramfs "$RUN_INITRD")
         else
-            CMD+=(--disk path="$RUN_ROOTFS")
+            CMD+=(--disk path="$RUN_DISK")
         fi
     else
         CMD+=(--disk path="$RUN_DISK")
@@ -287,12 +302,12 @@ else # QEMU
             CMD+=(-initrd "$RUN_INITRD")
         else
             CMD+=(-device virtio-blk-pci,drive=rootfs0)
-            CMD+=(-drive format=raw,if=none,file=/tmp/guest_disk,id=rootfs0)
+            CMD+=(-drive format=raw,if=none,file=$RUN_DISK,id=rootfs0)
         fi
     else
         use_initrd=false
         CMD+=(-device virtio-blk-pci,drive=rootfs0)
-        CMD+=(-drive format=raw,if=none,file=/tmp/guest_disk,id=rootfs0)
+        CMD+=(-drive format=raw,if=none,file=$RUN_DISK,id=rootfs0)
     fi
 
 
@@ -362,22 +377,6 @@ fi
 #
 # Now run the VM
 #
-if $use_direct_kernel; then
-    run_disk="${RUN_ROOTFS}"
-else 
-    run_disk="${RUN_DISK}"
-fi
-
-# Rough platform detection
-if [ -n "$(dmesg | grep FVP)" ]; then
-	GUEST_TTY=/dev/ttyAMA1
-    # FVP 9p doesn't support whatever QEMU is trying to do the the rootfs. F_SETLK maybe?
-    cp "$run_disk" /tmp/guest_disk
-else
-	GUEST_TTY=/dev/hvc1
-    ln -fs "$run_disk" /tmp/guest_disk
-fi
-
 if [ $vmm = kvmtool ]; then
     vmm_cmd="lkvm run"
 elif [ "$vmm" = "cloud-hv" ]; then
