@@ -309,9 +309,21 @@ fn parse_append(raw_args: &mut RawArgs, qemu: &mut QemuParams) -> Result<()> {
     Ok(())
 }
 
-fn parse_ignore(raw_args: &mut RawArgs, arg: &str) -> Result<()> {
-    let val = pop_arg(raw_args, arg)?;
-    log::warn!("ignored {arg} {val}");
+fn parse_device(raw_args: &mut RawArgs) -> Result<()> {
+    let val = pop_arg(raw_args, "-device")?;
+    let device_type = val.split(',').next().unwrap_or("");
+    // Ignore the device that we know for sure don't affect the RIM. Warn about
+    // the others until someone checks that they don't either. Basically
+    // anything that doesn't change the DTB should be fine, which is most
+    // devices (but not IOMMUs, for example).
+    match device_type {
+        "virtconsole" | "virtio-blk-pci" | "virtio-serial-pci" | "virtio-net-pci"
+        | "virtio-9p-pci" | "virtio-fs-pci" => (),
+        _ => {
+            log::warn!("ignored -device {val}")
+        }
+    }
+
     Ok(())
 }
 
@@ -717,9 +729,12 @@ pub fn build_params(args: &Args, qemu_args: &QemuArgs) -> Result<RealmConfig> {
             "-append" => parse_append(raw_args, &mut qemu)?,
             "-machine" | "-M" => parse_machine(raw_args, &mut qemu)?,
             "-cpu" => parse_cpu(raw_args, &mut realm)?,
-            "-device" | "-drive" | "-fsdev" => parse_ignore(raw_args, &arg)?,
+            "-device" => parse_device(raw_args)?,
             // These don't affect the RIM
-            "-enable-kvm" | "-nographic" => (),
+            "-drive" | "-fsdev" | "-chardev" | "-netdev" | "-mon" => {
+                pop_arg(raw_args, &arg)?;
+            }
+            "-enable-kvm" | "-nographic" | "-nodefaults" => (),
             "-dtb" => {
                 pop_arg(raw_args, &arg)?;
             }
