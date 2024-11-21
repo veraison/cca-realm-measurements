@@ -215,7 +215,7 @@ fn parse_object(
         };
 
         match prop {
-            "measurement-algo" => realm.set_measurement_algo(val)?,
+            "measurement-algorithm" => realm.set_measurement_algo(val)?,
             "personalization-value" => {
                 realm.set_personalization_value(val.parse()?);
             }

@@ -24,7 +24,7 @@
 //!     --output-dtb qemu-gen.dtb       # generated DTB
 //!     qemu                            # VMM type. Parameters follow
 //!     -M virt,confidential-guest-support=rme0
-//!     -object rme-guest,id=rme0,measurement-algo=sha512
+//!     -object rme-guest,id=rme0,measurement-algorithm=sha512
 //!     -cpu host -enable-kvm
 //!     ...
 //! ```

@@ -288,7 +288,7 @@ else # QEMU
     EDK2="$EDK2_DIR/Build/ArmVirtQemu-AARCH64/DEBUG_GCC5/FV/QEMU_EFI.fd"
 
     if $use_rme; then
-        CMD+=(-M confidential-guest-support=rme0 -object rme-guest,id=rme0,measurement-algo=sha512,personalization-value=abcd,measurement-log=on)
+        CMD+=(-M confidential-guest-support=rme0 -object rme-guest,id=rme0,measurement-algorithm=sha512,personalization-value=abcd,measurement-log=on)
     fi
 
     if $use_virtconsole; then
