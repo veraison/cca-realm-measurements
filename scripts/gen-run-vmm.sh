@@ -80,6 +80,7 @@ while true; do
         ;;
     '--disk-boot')
         use_direct_kernel=false
+        use_initrd=false
         ;;
     '--disk')
         use_initrd=false
@@ -175,9 +176,6 @@ if [ $# -ne 0 ]; then
     exit 1
 fi
 
-if $use_edk2; then
-    use_virtconsole=false
-fi
 
 declare -a CMD
 declare -a KPARAMS
@@ -318,24 +316,13 @@ else # QEMU
     fi
 
     if $use_virtconsole; then
-        CMD+=(-nodefaults)
-        CMD+=(-chardev stdio,mux=on,id=virtiocon0,signal=off -device virtio-serial-pci -device virtconsole,chardev=virtiocon0 -mon chardev=virtiocon0,mode=readline)
+        CMD+=(-nodefaults
+              -chardev stdio,mux=on,id=chr0,signal=off
+              -serial chardev:chr0
+              -device virtio-serial-pci
+              -device virtconsole,chardev=chr0
+              -mon chardev=chr0,mode=readline)
     fi
-
-    if $use_direct_kernel; then
-        CMD+=(-kernel "$RUN_KERNEL")
-        if $use_initrd; then
-            CMD+=(-initrd "$RUN_INITRD")
-        else
-            CMD+=(-device virtio-blk-pci,drive=rootfs0)
-            CMD+=(-drive format=raw,if=none,file=$RUN_DISK,id=rootfs0)
-        fi
-    else
-        use_initrd=false
-        CMD+=(-device virtio-blk-pci,drive=rootfs0)
-        CMD+=(-drive format=raw,if=none,file=$RUN_DISK,id=rootfs0)
-    fi
-
 
     if $use_edk2; then
         CMD+=(-bios "$RUN_EDK2_DIR/QEMU_EFI.fd")
@@ -356,7 +343,20 @@ else # QEMU
         -dtb qemu-gen.dtb
     )
 
-    APPEND=(-append "${KPARAMS[*]}")
+    if $use_direct_kernel; then
+        CMD+=(-kernel "$RUN_KERNEL")
+        if $use_initrd; then
+            CMD+=(-initrd "$RUN_INITRD")
+        else
+            CMD+=(-device virtio-blk-pci,drive=rootfs0)
+            CMD+=(-drive format=raw,if=none,file=$RUN_DISK,id=rootfs0)
+        fi
+
+        APPEND=(-append "${KPARAMS[*]}")
+    else
+        CMD+=(-device virtio-blk-pci,drive=rootfs0)
+        CMD+=(-drive format=raw,if=none,file=$RUN_DISK,id=rootfs0)
+    fi
 fi
 
 if [ -n "$CORIM_OUTPUT" ]; then
