@@ -13,6 +13,7 @@ set -eu
 
 use_virtconsole=true
 use_edk2=false
+use_event_log=false
 use_direct_kernel=true
 use_initrd=true
 use_rme=true
@@ -59,7 +60,7 @@ CORIM_OUTPUT=
 
 INPUT_RVSTORE="$RVSTORE_DIR/rv.json"
 
-TEMP=$(getopt -o 'hvT' --long 'help,edk2,disk-boot,disk,gen-measurements,serial,no-rme,kvmtool,cloudhv,tap,verbose,comid-template:,corim-template:,corim-output:,extcon' -n 'gen-run-vmm' -- "$@")
+TEMP=$(getopt -o 'hvT' --long 'help,edk2,eventlog,disk-boot,disk,gen-measurements,serial,no-rme,kvmtool,cloudhv,tap,verbose,comid-template:,corim-template:,corim-output:,extcon' -n 'gen-run-vmm' -- "$@")
 if [ $? -ne 0 ]; then
     exit 1
 fi
@@ -102,6 +103,9 @@ while true; do
         use_net_tap=true
         ipa_bits=48
         ;;
+    '--eventlog')
+        use_event_log=true
+        ;;
     '--tap')
         use_net_tap=true
         ;;
@@ -137,6 +141,7 @@ in the current directoy. The default VMM is QEMU.
   --disk-boot           Boot from disk instead of direct kernel boot
   --disk                Use disk as userspace instead of initrd
   --edk2                Use ekd2 firmware
+  --eventlog            Create an event log for the Realm Initial Measurement
   --extcon              Use a separate in+out console for the guest
   --kvmtool             Use kvmtool as VMM
   --no-rme              Disable RME
@@ -243,13 +248,15 @@ if [ "$vmm" = "kvmtool" ]; then
         --network mode=user
         #--9p /mnt/shr0,shr0
         --dtb kvmtool-gen.dtb
-        --measurement-log
         --debug
     )
     if $use_initrd; then
         CMD+=(-i "$RUN_INITRD")
     else
         CMD+=(-d "$RUN_DISK")
+    fi
+    if $use_event_log; then
+        CMD+=(--measurement-log)
     fi
 
     if [ -n "${KPARAMS[*]}" ]; then
@@ -298,8 +305,14 @@ else # QEMU
     OUTPUT_DTB="$OUTPUT_DTB_DIR/qemu-gen.dtb"
     EDK2="$EDK2_DIR/Build/ArmVirtQemu-AARCH64/DEBUG_GCC5/FV/QEMU_EFI.fd"
 
+    if $use_event_log; then
+        measurement_log=on
+    else
+        measurement_log=off
+    fi
+
     if $use_rme; then
-        CMD+=(-M confidential-guest-support=rme0 -object rme-guest,id=rme0,measurement-algorithm=sha512,personalization-value=abcd,measurement-log=on)
+        CMD+=(-M confidential-guest-support=rme0 -object rme-guest,id=rme0,measurement-algorithm=sha512,personalization-value=abcd,measurement-log=$measurement_log)
     fi
 
     if $use_virtconsole; then
