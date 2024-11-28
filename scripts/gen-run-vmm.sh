@@ -118,6 +118,9 @@ while true; do
         gen_measurements=true
         shift
         ;;
+    '--gen-measurements')
+        gen_measurements=true
+        ;;
     '--extcon')
         separate_console=true
         ;;
@@ -125,21 +128,29 @@ while true; do
         verbose=true
         ;;
     '-h'|'--help')
-        echo "Usage: $0"
-        echo "  --disk-boot     boot from disk instead of direct kernel boot"
-        echo "  --disk          use disk as userspace instead of initrd"
-        echo "  --edk2          used ekd2 firmware"
-        echo "  --kvmtool       use kvmtool as VMM (default QEMU)"
-        echo "  --cloudhv       use cloud-hypervisor as VMM"
-        echo "  --no-rme        disable RME"
-        echo "  --serial        use serial instead of virtconsole"
-        echo "  --tap           use tap networking instead of user"
-        echo "  --extcon        use a separate in+out console for the guest"
-        echo "  -v --verbose    be more verbose"
-        echo
-        echo "  --comid-template <file.json>"
-        echo "  --corim-template <file.json>"
-        echo "  --corim-output <file.cbor>  Generate CoMID file containing reference values"
+        cat << EOF
+Usage: $0
+Launch a guest in a realm. Generate the DTB file corresponding to the VM
+in the current directoy. The default VMM is QEMU.
+
+  --cloudhv             Use cloud-hypervisor as VMM
+  --disk-boot           Boot from disk instead of direct kernel boot
+  --disk                Use disk as userspace instead of initrd
+  --edk2                Use ekd2 firmware
+  --extcon              Use a separate in+out console for the guest
+  --kvmtool             Use kvmtool as VMM
+  --no-rme              Disable RME
+  --serial              Use serial instead of virtconsole
+  --tap                 Use tap networking instead of user
+  -v --verbose          Be more verbose
+
+In "generate" mode, generate the measurements instead of running the VM:
+
+  --gen-measurements    Generate and print measurements
+  --comid-template <file.json>
+  --corim-template <file.json>
+  --corim-output <file.cbor>  Generate CoMID file containing reference values
+EOF
         exit 1
         ;;
     '--')
@@ -333,7 +344,7 @@ else # QEMU
     APPEND=(-append "${KPARAMS[*]}")
 fi
 
-if $gen_measurements; then
+if [ -n "$CORIM_OUTPUT" ]; then
     # Try the default sample files
     [ -z "$CORIM_TEMPLATE" ] && CORIM_TEMPLATE=samples/corim-cca-realm.json
     [ -z "$COMID_TEMPLATE" ] && COMID_TEMPLATE=samples/comid-cca-realm.json
@@ -350,14 +361,17 @@ if $gen_measurements; then
 fi
 
 declare -a extra_args
-$gen_measurements || extra_args+=(--no-measurements)
+if $gen_measurements; then
+    extra_args+=(--print-b64)
+else
+    extra_args+=(--no-measurements --output-dtb "$OUTPUT_DTB")
+fi
 $verbose && extra_args+=(-v)
 
 # When running the VM, the following only generates a DTB
 set -x
 $REALM_MEASUREMENTS \
     -c "$CONFIGS_DIR/qemu-max-8.2.conf" -c "$CONFIGS_DIR/kvm.conf" \
-    --output-dtb "$OUTPUT_DTB" \
     -k "$KERNEL" \
     -i "$INITRD" \
     -f "$EDK2" \
@@ -366,11 +380,13 @@ $REALM_MEASUREMENTS \
     $vmm "${CMD[@]}" "${APPEND[@]}"
 { set +x; } 2>/dev/null
 
-if $gen_measurements; then
+if [ -n "$CORIM_OUTPUT" ]; then
     cocli comid create --template "$COMID_OUTPUT" -o "$tmp"
     cocli corim create --template "$CORIM_TEMPLATE" --comid "$tmp/comid.cbor" \
         --output "$CORIM_OUTPUT"
 
+    exit
+elif $gen_measurements; then
     exit
 fi
 
