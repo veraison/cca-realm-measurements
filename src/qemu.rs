@@ -824,7 +824,8 @@ pub fn build_params(args: &Args, qemu_args: &QemuArgs) -> Result<RealmConfig> {
     }
 
     let pc = if use_firmware { 0 } else { QEMU_MEM_BASE };
-    realm.add_rec(pc, [dtb_start, 0, 0, 0, 0, 0, 0, 0])?;
+    let x0 = if use_firmware { 0 } else { dtb_start };
+    realm.add_rec(pc, [x0, 0, 0, 0, 0, 0, 0, 0])?;
 
     if let Some((log_base, log_size)) = qemu.log {
         realm.add_rim_unmeasured(log_base, log_size)?;
