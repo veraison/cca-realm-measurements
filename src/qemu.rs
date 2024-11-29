@@ -143,8 +143,8 @@ pub struct QemuArgs {
 
 fn parse_bool(dest: &mut bool, val: &str) -> Result<()> {
     match val {
-        "on" => *dest = true,
-        "off" => *dest = false,
+        "on" | "yes" | "true" | "y" => *dest = true,
+        "off" | "no" | "false" | "n" => *dest = false,
         "auto" => (),
         _ => bail!("expected on/off/auto, got '{val}'"),
     }
@@ -219,7 +219,7 @@ fn parse_object(
             "personalization-value" => {
                 realm.set_personalization_value(val.parse()?);
             }
-            "measurement-log" => qemu.has_measurement_log = true,
+            "measurement-log" => parse_bool(&mut qemu.has_measurement_log, val)?,
             "id" => (),
             _ => bail!("unsupported rme-guest property '{prop}'"),
         }
