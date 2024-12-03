@@ -380,8 +380,7 @@ pub fn build_params(args: &Args, cloudhv_args: &CloudHVArgs) -> Result<RealmConf
         let Some(filename) = &args.kernel else {
             bail!("need kernel image");
         };
-        let kernel = load_kernel(filename, CLOUDHV_KERNEL_BASE)
-            .with_context(|| filename.to_string())?;
+        let kernel = load_kernel(filename, CLOUDHV_KERNEL_BASE)?;
 
         realm.add_rim_blob(kernel)?;
     }

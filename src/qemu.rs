@@ -772,8 +772,7 @@ pub fn build_params(args: &Args, qemu_args: &QemuArgs) -> Result<RealmConfig> {
             bail!("need kernel image");
         };
 
-        let mut kernel =
-            load_kernel(filename, QEMU_MEM_BASE).with_context(|| filename.to_string())?;
+        let mut kernel = load_kernel(filename, QEMU_MEM_BASE)?;
         let kernel_load_size = kernel.load_size.unwrap_or(kernel.len()?);
 
         qemu.kernel_start = kernel.guest_start;

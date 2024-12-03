@@ -716,8 +716,7 @@ pub fn build_params(args: &Args, lkvm_args: &KvmtoolArgs) -> Result<RealmConfig>
         };
 
         pc = kvmtool.mem_base;
-        let kernel = load_kernel(filename, kvmtool.mem_base)
-            .with_context(|| filename.to_string())?;
+        let kernel = load_kernel(filename, kvmtool.mem_base)?;
         realm.add_rim_blob(kernel)?;
         kvmtool.use_kernel = true;
     }
