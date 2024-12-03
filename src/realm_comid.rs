@@ -63,7 +63,7 @@ pub struct ComidMeasurement {
 #[derive(Clone, Deserialize, Serialize, Debug, Default)]
 pub struct ComidTripleRefValue {
     pub environment: ComidEnvironment,
-    pub measurement: ComidMeasurement,
+    pub measurements: Vec<ComidMeasurement>,
 }
 
 #[derive(Clone, Deserialize, Serialize, Debug, Default)]
@@ -96,8 +96,8 @@ impl RealmEndorsementsComid {
             }];
         }
 
-        self.triples.reference_values[0].measurement = ComidMeasurement {
+        self.triples.reference_values[0].measurements = vec![ComidMeasurement {
             ..Default::default()
-        };
+        }];
     }
 }

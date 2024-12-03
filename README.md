@@ -49,8 +49,7 @@ verifier, using the [cocli] tool:
 Provisionning a [veraison] verifier running locally can be done with:
 
 	veraison -- cocli corim submit --corim-file cca-realm-corim.cbor
-		--api-server=https://provisioning-service:8888/endorsement-provisioning/v1/submit
-		--media-type "'application/corim-unsigned+cbor; profile=http://arm.com/cca/realm/1'"
+		--media-type 'application/corim-unsigned+cbor; profile="http://arm.com/cca/realm/1"'
 
 Helper
 ------
