@@ -80,8 +80,8 @@ Event log
 ---------
 
 The event_log library parses a TCG event log to construct the reference values.
-See [docs/measurement-log.md], examples/ and the rust documentation for this
-library.
+See [the doc](docs/measurement-log.md), [examples](examples/event_log.rs) and
+the [rust documentation](src/lib.rs) for this library.
 
 
 Realm token
