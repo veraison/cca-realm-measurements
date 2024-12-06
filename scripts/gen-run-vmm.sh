@@ -18,6 +18,7 @@ use_direct_kernel=true
 use_initrd=true
 use_rme=true
 use_net_tap=false
+host_fvp=false
 verbose=false
 separate_console=false
 vmm=qemu
@@ -62,7 +63,7 @@ CORIM_OUTPUT=
 
 INPUT_RVSTORE="$RVSTORE_DIR/rv.json"
 
-TEMP=$(getopt -o 'hvT' --long 'help,edk2,eventlog,disk-boot,disk,gen-measurements,serial,no-rme,kvmtool,cloudhv,tap,verbose,comid-template:,corim-template:,corim-output:,extcon' -n 'gen-run-vmm' -- "$@")
+TEMP=$(getopt -o 'hvT' --long 'help,edk2,eventlog,fvp,disk-boot,disk,gen-measurements,serial,no-rme,kvmtool,cloudhv,tap,verbose,comid-template:,corim-template:,corim-output:,extcon' -n 'gen-run-vmm' -- "$@")
 if [ $? -ne 0 ]; then
     exit 1
 fi
@@ -109,6 +110,9 @@ while true; do
     '--eventlog')
         use_event_log=true
         ;;
+    '--fvp')
+        host_fvp=true
+        ;;
     '--tap')
         use_net_tap=true
         ;;
@@ -145,6 +149,7 @@ in the current directoy. The default VMM is QEMU.
   --disk                Use disk as userspace instead of initrd
   --edk2                Use ekd2 firmware
   --eventlog            Create an event log for the Realm Initial Measurement
+  --fvp                 Host platform is FVP (default QEMU)
   --extcon              Use a separate in+out console for the guest
   --kvmtool             Use kvmtool as VMM
   --no-rme              Disable RME
@@ -199,6 +204,10 @@ fi
 if ! $gen_measurements; then
     # Rough platform detection
     if [ -n "$(dmesg | grep FVP)" ]; then
+        host_fvp=true
+    fi
+
+    if $host_fvp; then
         GUEST_TTY=/dev/ttyAMA1
         # FVP 9p implementation is rather restrictive, and doesn't support
         # several operations, such as locking by QEMU. It's also broken for
@@ -389,10 +398,16 @@ else
 fi
 $verbose && extra_args+=(-v)
 
+if $host_fvp; then
+    platform_config=fvp.conf
+else
+    platform_config=qemu-max-8.2.conf
+fi
+
 # When running the VM, the following only generates a DTB
 set -x
 $REALM_MEASUREMENTS \
-    -c "$CONFIGS_DIR/qemu-max-8.2.conf" -c "$CONFIGS_DIR/kvm.conf" \
+    -c "$CONFIGS_DIR/$platform_config" -c "$CONFIGS_DIR/kvm.conf" \
     -k "$KERNEL" \
     -i "$INITRD" \
     -f "$EDK2" \
