@@ -3,8 +3,6 @@
 ///
 use byteorder::{LittleEndian, ReadBytesExt};
 use fallible_iterator::FallibleIterator; // for uefi_eventlog
-use num_derive::FromPrimitive;
-use num_traits::FromPrimitive;
 use std::collections::HashMap;
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -80,7 +78,7 @@ pub enum EventLogError {
 type Result<T> = core::result::Result<T, EventLogError>;
 
 // Defined in docs/measurement-log.md
-#[derive(FromPrimitive, PartialEq)]
+#[derive(Debug, PartialEq)]
 enum RealmLogEvent {
     RealmCreate = 1,
     InitRipas,
@@ -446,8 +444,12 @@ impl<'a> TcgEventLog<'a> {
         let mut data = &event.data[..];
 
         let id = data.read_u32::<LittleEndian>()?;
-        let id = FromPrimitive::from_u32(id)
-            .ok_or(EventLogError::ParseEvent(format!("unknown tag {id}")))?;
+        let id = match id {
+            1 => RealmLogEvent::RealmCreate,
+            2 => RealmLogEvent::InitRipas,
+            3 => RealmLogEvent::RecCreate,
+            _ => return Err(EventLogError::ParseEvent(format!("unknown tag {id}"))),
+        };
         let size = data.read_u32::<LittleEndian>()? as usize;
 
         if self.second_pass {

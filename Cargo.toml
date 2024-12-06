@@ -39,8 +39,6 @@ base64 = "0.22.1"
 log = "0.4.22"
 stderrlog = "0.6.0"
 byteorder = "1.5.0"
-num-derive = "0.3.3"
-num-traits = "0.2.19"
 memmap2 = "0.9.5"
 uefi-eventlog = { git = "https://github.com/jpbrucker/uefi-eventlog-rs.git" }
 fallible-iterator = "0.3.0"
