@@ -312,7 +312,9 @@ else # QEMU
     fi
 
     if $use_rme; then
-        CMD+=(-M confidential-guest-support=rme0 -object rme-guest,id=rme0,measurement-algorithm=sha512,personalization-value=abcd,measurement-log=$measurement_log)
+        # printf "%64s" "I'm a teapot" | base64 -w0
+        RPV=ICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIEknbSBhIHRlYXBvdA==
+        CMD+=(-M confidential-guest-support=rme0 -object rme-guest,id=rme0,measurement-algorithm=sha512,personalization-value=$RPV,measurement-log=$measurement_log)
     fi
 
     if $use_virtconsole; then

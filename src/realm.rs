@@ -84,42 +84,21 @@ impl Display for PersonalizationValue {
     }
 }
 
-impl std::str::FromStr for PersonalizationValue {
-    type Err = RealmError;
-    /// Import a hex string, with no prefix. Stored in the same order,
-    /// zero-padded on the right.
-    fn from_str(s: &str) -> Result<Self> {
-        let mut rpv = PersonalizationValue::default();
-
-        if s.len() > 2 * 64 {
-            return Err(RealmError::RPVTooLarge);
-        }
-
-        let rpv_chars: Vec<char> = s.chars().collect();
-        let mut rpv_iter = rpv_chars.rchunks(2).rev();
-        for i in 0..64 {
-            rpv.0[i] = match rpv_iter.next() {
-                Some(s) => {
-                    // u8::from_str_radix() accepts '+', we don't.
-                    for &c in s {
-                        if c == '+' {
-                            return Err(RealmError::InvalidRPV("+".to_string()));
-                        }
-                    }
-                    u8::from_str_radix(&String::from_iter(s), 16)
-                        .map_err(|e| RealmError::InvalidRPV(e.to_string()))?
-                }
-                None => 0,
-            }
-        }
-        Ok(rpv)
-    }
-}
-
 impl PersonalizationValue {
     /// Encode as base64 string
     pub fn to_base64(&self) -> String {
         base64_standard.encode(self.0)
+    }
+
+    /// Decode a base64 string into a PersonalizationValue.
+    /// If the decodede array is smaller than the RPV size (64 bytes), it is
+    /// padded on the right.
+    pub fn from_base64(value: &str) -> Result<Self> {
+        let decoded = base64_standard
+            .decode(value)
+            .map_err(|e| RealmError::InvalidRPV(e.to_string()))?;
+
+        Self::try_from(&decoded[..])
     }
 }
 
@@ -583,8 +562,8 @@ mod tests {
             ]
         );
 
-        let s = "1";
-        let rpv: PersonalizationValue = s.parse()?;
+        let s = "AQ==";
+        let rpv = PersonalizationValue::from_base64(s)?;
         assert_eq!(
             rpv.0,
             [
@@ -594,8 +573,8 @@ mod tests {
             ]
         );
 
-        let s = "abc";
-        let rpv: PersonalizationValue = s.parse()?;
+        let s = "Crw=";
+        let rpv = PersonalizationValue::from_base64(s)?;
         assert_eq!(
             rpv.0,
             [
@@ -608,7 +587,7 @@ mod tests {
         assert_eq!(rpv.to_string(), "0abc0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000");
 
         let s = "";
-        let rpv: PersonalizationValue = s.parse()?;
+        let rpv = PersonalizationValue::from_base64(s)?;
         assert_eq!(
             rpv.0,
             [
@@ -618,8 +597,8 @@ mod tests {
             ]
         );
 
-        let s = "0201010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010A";
-        let rpv: PersonalizationValue = s.parse()?;
+        let s = "AgEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBCg==";
+        let rpv = PersonalizationValue::from_base64(s)?;
         assert_eq!(
             rpv.0,
             [
@@ -629,22 +608,15 @@ mod tests {
             ]
         );
 
-        let s = "000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"; // 129 chars
-        assert!(s.parse::<PersonalizationValue>().is_err());
+        let s = "AgEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBCgs="; // 129 chars
+        assert!(PersonalizationValue::from_base64(s).is_err());
 
-        let s = "hello";
-        let e = s.parse::<PersonalizationValue>().unwrap_err();
+        let s = "&+";
+        let e = PersonalizationValue::from_base64(s).unwrap_err();
         assert_eq!(
             e.to_string(),
-            "invalid Realm Personalization Value: invalid digit found in string"
+            "invalid Realm Personalization Value: Invalid symbol 38, offset 0."
         );
-
-        let s = "0x00";
-        assert!(s.parse::<PersonalizationValue>().is_err());
-
-        let s = "+2";
-        let e = s.parse::<PersonalizationValue>().unwrap_err();
-        assert_eq!(e.to_string(), "invalid Realm Personalization Value: +");
 
         let b: [u8; 65] = [
             2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,

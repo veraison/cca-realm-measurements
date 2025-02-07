@@ -10,6 +10,7 @@ use anyhow::{bail, Context, Result};
 use crate::command_line::*;
 use crate::dtb_surgeon::*;
 use crate::fdt::*;
+use crate::realm::*;
 use crate::realm_config::*;
 use crate::utils::*;
 use crate::vmm::*;
@@ -217,7 +218,8 @@ fn parse_object(
         match prop {
             "measurement-algorithm" => realm.set_measurement_algo(val)?,
             "personalization-value" => {
-                realm.set_personalization_value(val.parse()?);
+                let rpv = PersonalizationValue::from_base64(val)?;
+                realm.set_personalization_value(rpv);
             }
             "measurement-log" => parse_bool(&mut qemu.has_measurement_log, val)?,
             "id" => (),
