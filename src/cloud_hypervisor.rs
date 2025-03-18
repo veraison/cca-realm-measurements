@@ -2,6 +2,7 @@
 //
 use crate::command_line::*;
 use crate::fdt::*;
+use crate::realm::*;
 use crate::realm_config::*;
 use crate::utils::*;
 use crate::vmm::*;
@@ -158,7 +159,8 @@ fn parse_platform(arg: &Option<String>, realm: &mut RealmConfig) -> Result<()> {
 
         match name {
             "personalization_value" => {
-                realm.set_personalization_value(val.as_bytes().try_into()?)
+                let rpv = PersonalizationValue::from_base64(val)?;
+                realm.set_personalization_value(rpv);
             }
             "measurement_algo" => realm.set_measurement_algo(val)?,
             _ => (),
@@ -370,11 +372,12 @@ pub fn build_params(args: &Args, cloudhv_args: &CloudHVArgs) -> Result<RealmConf
         serial: true,
     };
 
-    realm.params.restrict_sve_vl(0)?;
     realm.params.restrict_ipa_bits(48)?;
     realm.set_measurement_algo("sha512")?;
 
     parse_cmdline(cloudhv_args, &mut cloudhv, &mut realm)?;
+
+    realm.add_ram(CLOUDHV_MEM_START, cloudhv.mem_size)?;
 
     if cloudhv_args.kernel.is_some() {
         let Some(filename) = &args.kernel else {
