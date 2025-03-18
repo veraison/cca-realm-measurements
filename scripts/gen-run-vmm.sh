@@ -54,6 +54,8 @@ done
 # kernel and bootloader, and the second is the userspace (e.g. buildroot).
 : ${RUN_DISK:=guest_disk}
 
+MEM_SIZE=1G
+
 COMID_TEMPLATE=
 CORIM_TEMPLATE=
 CORIM_OUTPUT=
@@ -241,7 +243,7 @@ if [ "$vmm" = "kvmtool" ]; then
     fi
 
     CMD+=(
-        -c 2 -m 512
+        -c 2 -m $MEM_SIZE
         -k ${RUN_KERNEL}
         --virtio-transport pci
         --irqchip=gicv3-its
@@ -295,7 +297,7 @@ elif [ "$vmm" = "cloud-hv" ]; then
 
     CMD+=(
         --cpus boot=2
-        --memory size=512M
+        --memory size=$MEM_SIZE
         --net fd=3,mac=$tapaddress
         --dtb cloudhv-gen.dtb
         -v
@@ -337,7 +339,7 @@ else # QEMU
 
     CMD+=(
         -cpu host -M virt -enable-kvm -M gic-version=3,its=on
-        -smp 2 -m 512M
+        -smp 2 -m $MEM_SIZE
         -nographic
         #-device virtio-9p-pci,fsdev=shr0,mount_tag=shr0
         #-fsdev local,security_model=none,path=/mnt/shr0,id=shr0
