@@ -196,14 +196,6 @@ if ! $use_initrd; then
     KPARAMS+=(root=/dev/vda2)
 fi
 
-if $use_net_tap; then
-    tapindex=$(cat /sys/class/net/macvtap0/ifindex)
-    tapaddress=$(cat /sys/class/net/macvtap0/address)
-    if [ "$vmm" != "kvmtool" ]; then
-        exec 3<>/dev/tap$tapindex
-    fi
-fi
-
 if ! $gen_measurements; then
     # Rough platform detection
     if [ -n "$(dmesg | grep FVP)" ]; then
@@ -219,6 +211,17 @@ if ! $gen_measurements; then
         # QEMU machine provides virtio-console
         GUEST_TTY=/dev/hvc1
     fi
+
+    if $use_net_tap; then
+        tapindex=$(cat /sys/class/net/macvtap0/ifindex)
+        tapaddress=$(cat /sys/class/net/macvtap0/address)
+        if [ "$vmm" != "kvmtool" ]; then
+            exec 3<>/dev/tap$tapindex
+        fi
+    fi
+else
+    tapindex=
+    tapaddress=
 fi
 
 # printf "%64s" "I'm a teapot" | base64 -w0
