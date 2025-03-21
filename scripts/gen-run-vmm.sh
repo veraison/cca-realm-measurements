@@ -23,6 +23,7 @@ verbose=false
 separate_console=false
 vmm=qemu
 
+gen_dtb=true
 gen_measurements=false
 
 : ${CFG:=gen-run-vmm.cfg}
@@ -42,6 +43,7 @@ done
 
 : ${OUTPUT_SCRIPT_DIR:=.}
 : ${OUTPUT_DTB_DIR:=.}
+: ${OUTPUT_DTB:=}
 
 : ${RVSTORE_DIR:=}
 : ${CONFIGS_DIR:=/usr/share/cca-realm-measurements/configs}
@@ -63,7 +65,7 @@ CORIM_OUTPUT=
 
 INPUT_RVSTORE="$RVSTORE_DIR/rv.json"
 
-TEMP=$(getopt -o 'hvT' --long 'help,edk2,eventlog,fvp,disk-boot,disk,gen-measurements,serial,no-rme,kvmtool,cloudhv,tap,verbose,comid-template:,corim-template:,corim-output:,extcon' -n 'gen-run-vmm' -- "$@")
+TEMP=$(getopt -o 'hvT' --long 'help,edk2,eventlog,fvp,disk-boot,disk,gen-measurements,serial,no-gen-dtb,no-rme,kvmtool,cloudhv,tap,verbose,comid-template:,corim-template:,corim-output:,extcon' -n 'gen-run-vmm' -- "$@")
 if [ $? -ne 0 ]; then
     exit 1
 fi
@@ -93,6 +95,9 @@ while true; do
         ;;
     '--no-rme')
         use_rme=false
+        ;;
+    '--no-gen-dtb')
+        gen_dtb=false
         ;;
     '--kvmtool')
         vmm=kvmtool
@@ -150,6 +155,7 @@ in the current directoy. The default VMM is QEMU.
   --edk2                Use ekd2 firmware
   --eventlog            Create an event log for the Realm Initial Measurement
   --fvp                 Host platform is FVP (default QEMU)
+  --no-gen-dtb          Don't pass a generated DTB to the VMM
   --extcon              Use a separate in+out console for the guest
   --kvmtool             Use kvmtool as VMM
   --no-rme              Disable RME
@@ -157,7 +163,7 @@ in the current directoy. The default VMM is QEMU.
   --tap                 Use tap networking instead of user
   -v --verbose          Be more verbose
 
-In "generate" mode, generate the measurements instead of running the VM:
+In "measurements" mode, generate the measurements instead of running the VM:
 
   --gen-measurements    Generate and print measurements
   --comid-template <file.json>
@@ -229,6 +235,12 @@ if ! $gen_measurements; then
         fi
     fi
 else
+    # In "measurement" mode, users can request to generate a DTB by setting
+    # OUTPUT_DTB.
+    if [ -z "$OUTPUT_DTB" ]; then
+        gen_dtb=false
+    fi
+
     tapindex=
     tapaddress=
 fi
@@ -237,7 +249,7 @@ fi
 RPV=ICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIEknbSBhIHRlYXBvdA==
 
 if [ "$vmm" = "kvmtool" ]; then
-    OUTPUT_DTB="$OUTPUT_DTB_DIR/kvmtool-gen.dtb"
+    : ${OUTPUT_DTB:="$OUTPUT_DTB_DIR/kvmtool-gen.dtb"}
     EDK2="$EDK2_DIR/Build/ArmVirtKvmtool-AARCH64/DEBUG_GCC5/FV/KVMTOOL_EFI.fd"
 
     if $use_virtconsole; then
@@ -262,9 +274,11 @@ if [ "$vmm" = "kvmtool" ]; then
         --pmu
         --network mode=user
         #--9p /mnt/shr0,shr0
-        --dtb kvmtool-gen.dtb
         --debug
     )
+    if $gen_dtb; then
+        CMD+=(--dtb kvmtool-gen.dtb)
+    fi
     if $use_initrd; then
         CMD+=(-i "$RUN_INITRD")
     else
@@ -278,7 +292,7 @@ if [ "$vmm" = "kvmtool" ]; then
         APPEND=(-p "${KPARAMS[*]}")
     fi
 elif [ "$vmm" = "cloud-hv" ]; then
-    OUTPUT_DTB="$OUTPUT_DTB_DIR/cloudhv-gen.dtb"
+    : ${OUTPUT_DTB:="$OUTPUT_DTB_DIR/cloudhv-gen.dtb"}
     EDK2="$EDK2_DIR/Build/ArmVirtCloudHv-AARCH64/DEBUG_GCC5/FV/QEMU_EFI.fd"
 
     if $use_rme; then
@@ -311,13 +325,15 @@ elif [ "$vmm" = "cloud-hv" ]; then
         --cpus boot=2
         --memory size=$MEM_SIZE
         --net fd=3,mac=$tapaddress
-        --dtb cloudhv-gen.dtb
         -v
     )
+    if $gen_dtb; then
+        CMD+=(--dtb cloudhv-gen.dtb)
+    fi
 
     APPEND=(--cmdline "${KPARAMS[*]}")
 else # QEMU
-    OUTPUT_DTB="$OUTPUT_DTB_DIR/qemu-gen.dtb"
+    : ${OUTPUT_DTB:="$OUTPUT_DTB_DIR/qemu-gen.dtb"}
     EDK2="$EDK2_DIR/Build/ArmVirtQemu-AARCH64/DEBUG_GCC5/FV/QEMU_EFI.fd"
 
     if $use_event_log; then
@@ -355,8 +371,11 @@ else # QEMU
         -nographic
         #-device virtio-9p-pci,fsdev=shr0,mount_tag=shr0
         #-fsdev local,security_model=none,path=/mnt/shr0,id=shr0
-        -dtb qemu-gen.dtb
     )
+
+    if $gen_dtb; then
+        CMD+=(-dtb qemu-gen.dtb)
+    fi
 
     if $use_direct_kernel; then
         CMD+=(-kernel "$RUN_KERNEL")
@@ -394,7 +413,10 @@ declare -a extra_args
 if $gen_measurements; then
     extra_args+=(--print-b64)
 else
-    extra_args+=(--no-measurements --output-dtb "$OUTPUT_DTB")
+    extra_args+=(--no-measurements)
+fi
+if $gen_dtb; then
+    extra_args+=(--output-dtb "$OUTPUT_DTB")
 fi
 $verbose && extra_args+=(-v)
 
@@ -404,17 +426,19 @@ else
     platform_config=qemu-max-8.2.conf
 fi
 
-# When running the VM, the following only generates a DTB
-set -x
-$REALM_MEASUREMENTS \
-    -c "$CONFIGS_DIR/$platform_config" -c "$CONFIGS_DIR/kvm.conf" \
-    -k "$KERNEL" \
-    -i "$INITRD" \
-    -f "$EDK2" \
-    ${extra_args[@]} \
-    "${CORIM_PARAMS[@]}" \
-    $vmm "${CMD[@]}" "${APPEND[@]}"
-{ set +x; } 2>/dev/null
+if $gen_dtb || $gen_measurements; then
+    # When running the VM, the following only generates a DTB
+    set -x
+    $REALM_MEASUREMENTS \
+        -c "$CONFIGS_DIR/$platform_config" -c "$CONFIGS_DIR/kvm.conf" \
+        -k "$KERNEL" \
+        -i "$INITRD" \
+        -f "$EDK2" \
+        ${extra_args[@]} \
+        "${CORIM_PARAMS[@]}" \
+        $vmm "${CMD[@]}" "${APPEND[@]}"
+    { set +x; } 2>/dev/null
+fi
 
 if [ -n "$CORIM_OUTPUT" ]; then
     cocli comid create --template "$COMID_OUTPUT" -o "$tmp"
