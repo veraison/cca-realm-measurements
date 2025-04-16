@@ -198,7 +198,9 @@ if $use_virtconsole; then
 else
     # earlycon needs to be accessed via physical address, which unfortunately
     # depends on the IPA size :(
-    earlycon_addr=$(printf "0x%x" $((earlycon_addr | (1 << (ipa_bits - 1)))))
+    if $use_rme; then
+        earlycon_addr=$(printf "0x%x" $((earlycon_addr | (1 << (ipa_bits - 1)))))
+    fi
 
     KPARAMS+=(earlycon=$earlycon,$earlycon_addr console=$serial_console)
 fi
