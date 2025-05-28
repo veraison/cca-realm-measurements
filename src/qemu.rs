@@ -558,7 +558,7 @@ impl DTBGenerator for QemuParams {
         )?;
         fdt.property_u32("#address-cells", 1)?;
         fdt.property_u32("#size-cells", 1)?;
-        let compat = vec!["self,platform".to_string(), "simple-bus".to_string()];
+        let compat = vec!["qemu,platform".to_string(), "simple-bus".to_string()];
         fdt.property_string_list("compatible", compat)?;
         fdt.end_node(bus_node)?;
 
@@ -567,7 +567,7 @@ impl DTBGenerator for QemuParams {
         let fw_cfg_node = fdt_begin_node_addr(&mut fdt, "fw-cfg", QEMU_FW_CFG_BASE)?;
         fdt.property_null("dma-coherent")?;
         fdt.property_array_u64("reg", &[QEMU_FW_CFG_BASE, QEMU_FW_CFG_SIZE])?;
-        fdt.property_string("compatible", "self,fw-cfg-mmio")?;
+        fdt.property_string("compatible", "qemu,fw-cfg-mmio")?;
         fdt.end_node(fw_cfg_node)?;
 
         for i in 0..32 {
