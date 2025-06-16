@@ -22,6 +22,8 @@ host_fvp=false
 verbose=false
 separate_console=false
 vmm=qemu
+share=false
+vsock=false
 
 gen_dtb=true
 gen_measurements=false
@@ -59,13 +61,16 @@ done
 
 MEM_SIZE=1G
 
+: ${SHARED_DIR:=/mnt/}
+: ${VSOCK_ID:=3}
+
 COMID_TEMPLATE=
 CORIM_TEMPLATE=
 CORIM_OUTPUT=
 
 INPUT_RVSTORE="$RVSTORE_DIR/rv.json"
 
-TEMP=$(getopt -o 'hvT' --long 'help,edk2,eventlog,fvp,disk-boot,disk,gen-measurements,serial,no-gen-dtb,no-rme,kvmtool,cloudhv,tap,verbose,comid-template:,corim-template:,corim-output:,extcon' -n 'gen-run-vmm' -- "$@")
+TEMP=$(getopt -o 'hvT' --long 'help,edk2,eventlog,fvp,disk-boot,disk,gen-measurements,serial,no-gen-dtb,no-rme,kvmtool,cloudhv,tap,verbose,comid-template:,corim-template:,corim-output:,extcon,share::,vsock::' -n 'gen-run-vmm' -- "$@")
 if [ $? -ne 0 ]; then
     exit 1
 fi
@@ -140,8 +145,22 @@ while true; do
     '--extcon')
         separate_console=true
         ;;
+    '--share')
+        share=true
+        if [ -n "$2" ]; then
+            SHARED_DIR="$2"
+        fi
+        shift
+        ;;
     '-v'|'--verbose')
         verbose=true
+        ;;
+    '--vsock')
+        vsock=true
+        if [ -n "$2" ]; then
+            VSOCK_ID="$2"
+        fi
+        shift
         ;;
     '-h'|'--help')
         cat << EOF
@@ -160,7 +179,9 @@ in the current directoy. The default VMM is QEMU.
   --kvmtool             Use kvmtool as VMM
   --no-rme              Disable RME
   --serial              Use serial instead of virtconsole
+  --share [dir]         Share directory with the guest (default '${SHARED_DIR}')
   --tap                 Use tap networking instead of user
+  --vsock [id]          Instantiate a vsock device
   -v --verbose          Be more verbose
 
 In "measurements" mode, generate the measurements instead of running the VM:
@@ -189,6 +210,14 @@ if [ $# -ne 0 ]; then
     exit 1
 fi
 
+VIRTIOFSD_SOCK=/tmp/virtiofsd.sock
+launch_virtiofsd () {
+    if [ -e "$VIRTIOFSD_SOCK" ]; then
+        echo "error: virtiofsd is already running"
+        exit 1
+    fi
+    virtiofsd --shared-dir "$SHARED_DIR" --socket-path "$VIRTIOFSD_SOCK" &
+}
 
 declare -a CMD
 declare -a KPARAMS
@@ -392,6 +421,20 @@ else # QEMU
     else
         CMD+=(-device virtio-blk-pci,drive=rootfs0)
         CMD+=(-drive format=raw,if=none,file=$RUN_DISK,id=rootfs0)
+    fi
+
+    if $vsock; then
+        CMD+=(
+            -device vhost-vsock-pci,guest-cid="$VSOCK_ID"
+        )
+    fi
+
+    if $share; then
+        launch_virtiofsd
+        CMD+=(
+            -chardev socket,id=vfs0,path="$VIRTIOFSD_SOCK"
+            -device vhost-user-fs-pci,queue-size=1024,chardev=vfs0,tag=vfs0
+        )
     fi
 fi
 
