@@ -31,7 +31,7 @@ path = "src/main.rs"
 cca-rmm = { version = "0.1.0", path = "rmm/" }
 anyhow = "1.0.79"
 clap = { version = "4.5.1", features = ["derive"] }
-openssl = "0.10.70"
+openssl = "0.10.72"
 toml = "0.8.10"
 vm-fdt = { git = "https://github.com/jpbrucker/vm-fdt.git" }
 serde_json = { version = "1.0.114" }
