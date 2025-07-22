@@ -297,9 +297,16 @@ if [ "$vmm" = "kvmtool" ]; then
         CMD+=(--realm --restricted_mem --sve-max-vl=512)
     fi
 
+    if $use_edk2; then
+        CMD+=(-f "${RUN_EDK2_DIR}/KVMTOOL_EFI.fd")
+    fi
+
+    if $use_direct_kernel; then
+        CMD+=(-k "${RUN_KERNEL}")
+    fi
+
     CMD+=(
         -c 2 -m $MEM_SIZE
-        -k ${RUN_KERNEL}
         --virtio-transport pci
         --irqchip=gicv3-its
         --pmu
