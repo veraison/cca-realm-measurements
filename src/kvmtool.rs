@@ -153,10 +153,19 @@ pub struct KvmtoolArgs {
     realm_pv: Option<String>,
 
     #[arg(long)]
+    no_pvtime: bool,
+
+    #[arg(long)]
     sve_max_vl: Option<u16>,
 
     #[arg(long)]
     pmu_counters: Option<u8>,
+
+    #[arg(long)]
+    vcpu_affinity: Option<String>,
+
+    #[arg(long)]
+    disable_mte: bool,
 
     #[arg(long)]
     force_pci: bool,
