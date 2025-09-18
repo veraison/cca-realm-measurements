@@ -278,6 +278,14 @@ fn parse_cpu(raw_args: &mut RawArgs, realm: &mut RealmConfig) -> Result<()> {
             "num-breakpoints" => realm.params.restrict_num_bps(val.parse()?)?,
             "num-watchpoints" => realm.params.restrict_num_wps(val.parse()?)?,
             "num-pmu-counters" => realm.params.restrict_pmu_num_ctrs(val.parse()?)?,
+            "pmu" => {
+                let mut pmu = realm.params.pmu.is_some_and(|v| v);
+                // By default we don't know whether the platform supports PMU.
+                // Assume that pmu=on means the platform supports it, otherwise
+                // QEMU would fail.
+                parse_bool(&mut pmu, val)?;
+                realm.params.restrict_pmu(pmu);
+            }
             "sve" => {
                 if val == "off" {
                     sve_vl = Some(0);
@@ -717,7 +725,6 @@ pub fn build_params(args: &Args, qemu_args: &QemuArgs) -> Result<RealmConfig> {
     let mut qemu = QemuParams::new();
 
     realm.set_measurement_algo("sha512")?;
-    qemu.set_pmu(realm.params.pmu.is_some_and(|v| v));
 
     // Parse QEMU's command-line to get more details about the desired VM
     while let Some(arg) = raw_args.pop_front() {
@@ -757,6 +764,8 @@ pub fn build_params(args: &Args, qemu_args: &QemuArgs) -> Result<RealmConfig> {
             }
         }
     }
+
+    qemu.set_pmu(realm.params.pmu.is_some_and(|v| v));
 
     // Ensure the memory map fits within the requested parameters
     check_memmap(&mut realm, &mut qemu)?;

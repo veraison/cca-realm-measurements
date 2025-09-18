@@ -163,6 +163,8 @@ fn qemu_params() {
         "6",
         "--ipa-bits",
         "52",
+        "--pmu-num-ctrs",
+        "6",
         "qemu",
     ];
 
@@ -211,4 +213,43 @@ fn qemu_params() {
         .append_context("test", "GICv3")
         .success()
         .stderr("");
+
+    // QEMU defaults to what KVM supports. Our platform (args) currently doesn't
+    // support PMU. This should thus have the same measurement as above.
+    cmd()
+        .args(args)
+        .args(["-cpu", "pmu=off"])
+        .assert()
+        .append_context("test", "pmu=off")
+        .success()
+        .stderr("") // no "ignored parameter" warning
+        .stdout(predicate::str::contains("RIM: cf409055d866eea6c8d5e7862b540ff1cac9b11f125d088587d5ae97a0e3341667cf8fb3983e7377bca5c01d037bd97081ebf3b4dcb648442149749f4d65eeb0"));
+
+    cmd()
+        .args(args)
+        .args(["-cpu", "pmu=on"])
+        .assert()
+        .append_context("test", "pmu=on")
+        .success()
+        .stderr("")
+        .stdout(predicate::str::contains("RIM: 8120ef921a987a3f8b9d4bb5e40f8489e2b4fc69c5e1b17b1a9b040884a1211d99b2bddc3fddcc99ec99f4244743fe3dcd3d9020583b47f7b66a2ec66bb897b9"));
+
+    cmd()
+        .args(["--pmu", "true"])
+        .args(args)
+        .args(["-cpu", "pmu=off"])
+        .assert()
+        .append_context("test", "pmu=off with platform on")
+        .success()
+        .stderr("")
+        .stdout(predicate::str::contains("RIM: cf409055d866eea6c8d5e7862b540ff1cac9b11f125d088587d5ae97a0e3341667cf8fb3983e7377bca5c01d037bd97081ebf3b4dcb648442149749f4d65eeb0"));
+
+    cmd()
+        .args(args)
+        .args(["-cpu", "pmu=on,num-pmu-counters=2"])
+        .assert()
+        .append_context("test", "pmu=on num-counters")
+        .success()
+        .stderr("")
+        .stdout(predicate::str::contains("RIM: ef4e6f78ea9630f66146b33a405a07b669ef94dd9aca6935d4fd23fea32f98f964241a2f9a9c20c9fcd74e20031c51c4beb8e577873e0348e891ee2d727e2807"));
 }
