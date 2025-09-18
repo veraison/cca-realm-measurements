@@ -153,3 +153,62 @@ REM3: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
 
     tmp_dir.close().unwrap();
 }
+
+#[test]
+fn qemu_params() {
+    let args = [
+        "--num-wps",
+        "6",
+        "--num-bps",
+        "6",
+        "--ipa-bits",
+        "52",
+        "qemu",
+    ];
+
+    // No arguments (invalid in QEMU but accepted by our tool)
+    cmd()
+        .args(args)
+        .assert()
+        .append_context("test", "no arguments")
+        .success()
+        .stdout(predicate::str::contains("RIM: cf409055d866eea6c8d5e7862b540ff1cac9b11f125d088587d5ae97a0e3341667cf8fb3983e7377bca5c01d037bd97081ebf3b4dcb648442149749f4d65eeb0"));
+
+    // GIC version: 2 is unsupported
+    cmd()
+        .args(args)
+        .args(["-M", "virt,gic-version=2"])
+        .assert()
+        .append_context("test", "GICv2")
+        .failure()
+        .stderr("ERROR Cannot build parameters: unsupport GIC version 2\n");
+    cmd()
+        .args(args)
+        .args(["-M", "virt,gic-version=4"])
+        .assert()
+        .append_context("test", "GICv4")
+        .failure();
+
+    // GIC version: host is supported, an alias for "3"
+    cmd()
+        .args(args)
+        .args(["-M", "virt,gic-version=host"])
+        .assert()
+        .append_context("test", "GIC host")
+        .success()
+        .stderr("");
+    cmd()
+        .args(args)
+        .args(["-M", "virt,gic-version=max"])
+        .assert()
+        .append_context("test", "GIC max")
+        .success()
+        .stderr("");
+    cmd()
+        .args(args)
+        .args(["-M", "virt,gic-version=3"])
+        .assert()
+        .append_context("test", "GICv3")
+        .success()
+        .stderr("");
+}

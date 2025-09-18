@@ -72,7 +72,6 @@ pub struct QemuParams {
     has_its: bool,
     has_acpi: bool,
     has_measurement_log: bool,
-    gic_version: GicModel,
     dtb_template: Option<Vec<u8>>,
 }
 
@@ -85,7 +84,6 @@ impl QemuParams {
             // On recent virt machines, ITS is enabled by default
             has_its: true,
             has_acpi: true,
-            gic_version: GicModel::GICv3,
             ..Default::default()
         }
     }
@@ -122,11 +120,9 @@ impl QemuParams {
     }
 
     fn redist_regions(&self) -> u32 {
-        let redist_size = match self.gic_version {
-            GicModel::GICv3 => 0x20000,
-            GicModel::GICv4 => 0x40000,
-        };
-        if self.num_cpus > QEMU_GIC_REDIST_SIZE as u32 / redist_size {
+        // Number of GICv3 redistributors that fit in the lower redist region
+        let num_redist = QEMU_GIC_REDIST_SIZE as u32 / 0x20000;
+        if self.num_cpus > num_redist {
             2
         } else {
             1
@@ -245,9 +241,12 @@ fn parse_machine(raw_args: &mut RawArgs, qemu: &mut QemuParams) -> Result<()> {
 
         match prop {
             "gic-version" => {
-                qemu.gic_version = match val {
-                    "3" => GicModel::GICv3,
-                    "4" => GicModel::GICv4,
+                match val {
+                    // "host" probes the GIC version supported by KVM, which we
+                    // can't know but the choices are GICv2 and GICv3, and GICv2
+                    // isn't supported for Realms. GICv4 is not supported under
+                    // KVM.
+                    "3" | "host" | "max" => (),
                     _ => bail!("unsupport GIC version {val}"),
                 }
             }

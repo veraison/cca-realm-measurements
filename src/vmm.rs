@@ -42,16 +42,6 @@ type Result<T> = VmmResult<T>;
 /// A Guest Physical Address (GPA) aka. Intermediate Physical Address (IPA)
 pub type GuestAddress = u64;
 
-/// The kind of Generic Interrupt Controller implemented in the VM
-#[derive(Copy, Clone, Debug, Default)]
-pub enum GicModel {
-    /// version 3
-    #[default]
-    GICv3,
-    /// version 4
-    GICv4,
-}
-
 /// Blob stored as a file
 #[derive(Debug, Default)]
 pub struct BlobStorageFile {
