@@ -769,11 +769,11 @@ pub fn build_params(args: &Args, lkvm_args: &KvmtoolArgs) -> Result<RealmConfig>
     }
 
     // Now generate a DTB...
-    if let Some(input_dtb) = &args.input_dtb {
-        kvmtool.set_template(std::fs::read(input_dtb)?)?;
+    if let Some(dtb_template) = &args.dtb_template {
+        kvmtool.set_template(std::fs::read(dtb_template)?)?;
     }
     kvmtool
-        .add_dtb(&args.output_dtb, dtb_base, &mut realm)
+        .add_dtb(&args.dtb, &args.output_dtb, dtb_base, &mut realm)
         .context("while generating DTB")?;
 
     Ok(realm)

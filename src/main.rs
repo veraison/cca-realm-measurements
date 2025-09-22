@@ -25,6 +25,11 @@ fn main() {
         .init()
         .unwrap();
 
+    if let Err(e) = check_args(&args) {
+        log::error!("Invalid arguments: {e:#}");
+        process::exit(1);
+    }
+
     let params = match args.vmm {
         VmmType::Qemu(ref a) => qemu::build_params(&args, a),
         VmmType::Kvmtool(ref a) => kvmtool::build_params(&args, a),

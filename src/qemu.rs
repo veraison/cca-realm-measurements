@@ -841,10 +841,10 @@ pub fn build_params(args: &Args, qemu_args: &QemuArgs) -> Result<RealmConfig> {
     }
 
     // Now generate a DTB...
-    if let Some(input_dtb) = &args.input_dtb {
-        qemu.set_template(std::fs::read(input_dtb)?)?;
+    if let Some(dtb_template) = &args.dtb_template {
+        qemu.set_template(std::fs::read(dtb_template)?)?;
     }
-    qemu.add_dtb(&args.output_dtb, dtb_start, &mut realm)
+    qemu.add_dtb(&args.dtb, &args.output_dtb, dtb_start, &mut realm)
         .context("while generating DTB")?;
 
     Ok(realm)

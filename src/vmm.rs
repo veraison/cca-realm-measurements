@@ -308,11 +308,19 @@ pub trait DTBGenerator {
     /// Add DTB to the realm, and optionally write it to file @output
     fn add_dtb(
         &self,
+        input: &Option<String>,
         output: &Option<String>,
         base: GuestAddress,
         realm: &mut RealmConfig,
     ) -> Result<()> {
-        let dtb = self.gen_dtb()?;
+        let dtb = if let Some(filename) = input {
+            std::fs::read(filename).map_err(|e| VmmError::File {
+                e,
+                filename: filename.to_string(),
+            })?
+        } else {
+            self.gen_dtb()?
+        };
 
         if let Some(filename) = output {
             write_dtb(filename, &dtb)?;

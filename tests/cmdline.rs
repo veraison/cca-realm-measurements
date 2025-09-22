@@ -253,3 +253,157 @@ fn qemu_params() {
         .stderr("")
         .stdout(predicate::str::contains("RIM: ef4e6f78ea9630f66146b33a405a07b669ef94dd9aca6935d4fd23fea32f98f964241a2f9a9c20c9fcd74e20031c51c4beb8e577873e0348e891ee2d727e2807"));
 }
+
+#[test]
+fn qemu_dtb() {
+    let tmp_dir = assert_fs::TempDir::new().unwrap();
+    let fw_file = tmp_dir.child("firmware");
+    let dtb_file = tmp_dir.child("dtb");
+    let output_dtb_file = tmp_dir.child("output.dtb");
+
+    fw_file.write_binary(b"FW CONTENT").unwrap();
+
+    let args = [
+        "--num-wps",
+        "6",
+        "--num-bps",
+        "6",
+        "--ipa-bits",
+        "52",
+        "--pmu-num-ctrs",
+        "6",
+        "-f",
+        fw_file.to_str().unwrap(),
+        "qemu",
+    ];
+
+    output_dtb_file.assert(predicate::path::missing());
+
+    cmd()
+        .args(["--output-dtb", output_dtb_file.to_str().unwrap()])
+        .args(args)
+        .args([
+            "-M",
+            "confidential-guest-support=rme0",
+            "-object",
+            "rme-guest,id=rme0,measurement-algorithm=sha512",
+            "-cpu",
+            "host",
+            "-M",
+            "virt",
+            "-enable-kvm",
+            "-smp",
+            "2",
+            "-m",
+            "1G",
+            "-nographic",
+            "-dtb",
+            "output.dtb",
+            "-bios",
+            "firmware",
+        ])
+        .assert()
+        .append_context("test", "generate dtb")
+        .success()
+        .stderr("")
+        .stdout(predicate::str::contains("RIM: 3175b3c0c201081ad410defe6c32e145fd77ff03e63518a9f00831b12b6ec2070f743f43f0ff3290902ecebd4e6bea8d5926dca19dc1a06fb8d51d551a4a2b79"));
+
+    output_dtb_file.assert(predicate::path::is_file());
+
+    dtb_file.write_file(&output_dtb_file).unwrap();
+    std::fs::remove_file(&output_dtb_file).unwrap();
+    output_dtb_file.assert(predicate::path::missing());
+    dtb_file.assert(predicate::path::is_file());
+
+    // Check that --dtb is output as is, and no DTB generation or patching takes
+    // place.
+    cmd()
+        .args(["--dtb", dtb_file.to_str().unwrap(), "--output-dtb", output_dtb_file.to_str().unwrap()])
+        .args(args)
+        .args([
+            "-M",
+            "confidential-guest-support=rme0",
+            "-object",
+            "rme-guest,id=rme0,measurement-algorithm=sha512",
+            "-cpu",
+            "host",
+            "-M",
+            "virt",
+            "-enable-kvm",
+            "-smp", // different SMP parameter would change output DTB,
+            "8",    // but we passed a fixed DTB with --dtb
+            "-m",
+            "1G",
+            "-nographic",
+            "-dtb",
+            "output.dtb",
+            "-bios",
+            "firmware",
+        ])
+        .assert()
+        .append_context("test", "input exact dtb")
+        .success()
+        .stderr("")
+        .stdout(predicate::str::contains("RIM: 3175b3c0c201081ad410defe6c32e145fd77ff03e63518a9f00831b12b6ec2070f743f43f0ff3290902ecebd4e6bea8d5926dca19dc1a06fb8d51d551a4a2b79"));
+
+    output_dtb_file.assert(predicate::path::eq_file(dtb_file.to_str().unwrap()));
+
+    std::fs::remove_file(&output_dtb_file).unwrap();
+    output_dtb_file.assert(predicate::path::missing());
+
+    // --input-dtb doesn't exist anymore
+    cmd()
+        .args(["--input-dtb", dtb_file.to_str().unwrap()])
+        .args(args)
+        .assert()
+        .append_context("test", "--input-dtb doesn't exist")
+        .failure()
+        .stderr(predicate::str::contains("error: unexpected argument"));
+
+    // --dtb or --dtb-template but not both
+    cmd()
+        .args([
+            "--dtb",
+            dtb_file.to_str().unwrap(),
+            "--dtb-template",
+            dtb_file.to_str().unwrap(),
+        ])
+        .args(args)
+        .assert()
+        .append_context("test", "--dtb incompatible with --dtb-template")
+        .failure()
+        .stderr("ERROR Invalid arguments: either --dtb or --dtb-template can be set but not both\n");
+
+    // it's now --dtb-template, which provides a base DTB to patch. Now the
+    // output DTB should describe 8 CPUs.
+    cmd()
+        .args(["--dtb-template", dtb_file.to_str().unwrap(), "--output-dtb", output_dtb_file.to_str().unwrap()])
+        .args(args)
+        .args([
+            "-M",
+            "confidential-guest-support=rme0",
+            "-object",
+            "rme-guest,id=rme0,measurement-algorithm=sha512",
+            "-cpu",
+            "host",
+            "-M",
+            "virt",
+            "-enable-kvm",
+            "-smp",
+            "8",
+            "-m",
+            "1G",
+            "-nographic",
+            "-dtb",
+            "output.dtb",
+            "-bios",
+            "firmware",
+        ])
+        .assert()
+        .append_context("test", "input template dtb")
+        .success()
+        .stderr("")
+        .stdout(predicate::str::contains("RIM: 68308d30762b7aa26f749d512864c0e0ad112e9626b8bf1c5486efe32b94b8d8ce8d736089ebf0850a91fda5422852294b679795202ed429fd8512b20b000728"));
+
+    tmp_dir.close().unwrap();
+}
