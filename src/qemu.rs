@@ -5,7 +5,7 @@
 // that.
 use std::cmp::{max, min};
 
-use anyhow::{bail, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 
 use crate::command_line::*;
 use crate::dtb_surgeon::*;
@@ -57,10 +57,102 @@ const QEMU_PPI_PMU: u32 = 7;
 const QEMU_DTB_SIZE: u64 = 1024 * KIB;
 const QEMU_LOG_SIZE: u64 = 64 * KIB;
 
+// CPU topology.
+//
+// For now we support a reduced CPU topology that can be instantiated by VMMs
+// and described in devicetree. DT supports sockets, clusters, cores and
+// threads. QEMU virt machine supports sockets, clusters, core, threads.
+// We don't support nested items (clusters of clusters), or varying number of
+// child nodes at any level.
+//
+// https://github.com/devicetree-org/dt-schema/ dtschema/schemas/cpu-map.yaml
+#[derive(Clone, Debug, Default, PartialEq)]
+struct CpuMap {
+    /// Number of CPU sockets
+    sockets: usize,
+    /// Number of clusters per socket
+    clusters: usize,
+    /// Number of cores per cluster
+    cores: usize,
+    /// Number of threads per core
+    threads: usize,
+
+    // Number of logical CPUs. Product of the above components, updated with
+    // update() (do not write directly.) It's cached to avoid dealing with the
+    // error handling we would need everywhere with a num_cpus() getter.
+    num_cpus: usize,
+}
+
+impl CpuMap {
+    fn new(num_cores: usize) -> Self {
+        Self {
+            sockets: 1,
+            clusters: 1,
+            cores: num_cores,
+            threads: 1,
+            num_cpus: num_cores,
+        }
+    }
+
+    fn update(
+        &mut self,
+        sockets: usize,
+        clusters: usize,
+        cores: usize,
+        threads: usize,
+    ) -> Result<()> {
+        let mut num_cpus = cores;
+
+        num_cpus = num_cpus
+            .checked_mul(sockets)
+            .ok_or(anyhow!("invalid number of sockets"))?;
+
+        num_cpus = num_cpus
+            .checked_mul(clusters)
+            .ok_or(anyhow!("invalid number of clusters"))?;
+
+        num_cpus = num_cpus
+            .checked_mul(threads)
+            .ok_or(anyhow!("invalid number of threads"))?;
+
+        if num_cpus == 0 {
+            // All fields must be > 0
+            bail!("invalid number of CPUs");
+        }
+
+        self.sockets = sockets;
+        self.clusters = clusters;
+        self.cores = cores;
+        self.threads = threads;
+        self.num_cpus = num_cpus;
+        Ok(())
+    }
+
+    /// Update the number of sockets and num_cpus
+    fn set_sockets(&mut self, val: usize) -> Result<()> {
+        self.update(val, self.clusters, self.cores, self.threads)
+    }
+
+    /// Update the number of clusters and num_cpus
+    fn set_clusters(&mut self, val: usize) -> Result<()> {
+        self.update(self.sockets, val, self.cores, self.threads)
+    }
+
+    /// Update the number of cores and num_cpus
+    fn set_cores(&mut self, val: usize) -> Result<()> {
+        self.update(self.sockets, self.clusters, val, self.threads)
+    }
+
+    /// Update the number of threads and num_cpus
+    fn set_threads(&mut self, val: usize) -> Result<()> {
+        self.update(self.sockets, self.clusters, self.cores, val)
+    }
+}
+
 /// QEMU configuration
 #[derive(Clone, Debug, Default)]
 pub struct QemuParams {
-    num_cpus: u32,
+    cpu_map: CpuMap,
     mem_size: u64,
     // Kernel command line
     bootargs: Option<String>,
@@ -79,7 +171,7 @@ impl QemuParams {
     /// Create a new QemuParams instance
     pub fn new() -> Self {
         Self {
-            num_cpus: 1,
+            cpu_map: CpuMap::new(1),
             mem_size: 128 * MIB,
             // On recent virt machines, ITS is enabled by default
             has_its: true,
@@ -89,7 +181,7 @@ impl QemuParams {
     }
 
     fn gic_phandle(&self) -> u32 {
-        QEMU_BASE_PHANDLE + self.num_cpus + 1
+        QEMU_BASE_PHANDLE + self.cpu_map.num_cpus as u32 + 1
     }
 
     fn its_phandle(&self) -> u32 {
@@ -122,7 +214,7 @@ impl QemuParams {
     fn redist_regions(&self) -> u32 {
         // Number of GICv3 redistributors that fit in the lower redist region
         let num_redist = QEMU_GIC_REDIST_SIZE as u32 / 0x20000;
-        if self.num_cpus > num_redist {
+        if self.cpu_map.num_cpus as u32 > num_redist {
             2
         } else {
             1
@@ -169,24 +261,76 @@ fn parse_mem(raw_args: &mut RawArgs) -> Result<u64> {
 }
 
 // Parse -smp argument, return number of vCPUs
-fn parse_smp(raw_args: &mut RawArgs) -> Result<usize> {
+fn parse_smp(raw_args: &mut RawArgs) -> Result<CpuMap> {
     let arg = pop_arg(raw_args, "-smp")?;
+    let mut cpus: Option<usize> = None;
+    let mut maxcpus: Option<usize> = None;
+    let mut sockets: Option<usize> = None;
+    let mut clusters: Option<usize> = None;
+    let mut cores: Option<usize> = None;
+    let mut threads: Option<usize> = None;
 
-    let mut cpus_str = "";
+    let mut map = CpuMap::new(1);
+
     for item in arg.split(',') {
         let Some((prop, val)) = item.split_once('=') else {
-            cpus_str = item;
+            cpus = Some(item.parse().context("-smp")?);
             continue;
         };
 
         match prop {
-            "cpus" => cpus_str = val,
-            _ => bail!("unsupported -smp parameter {prop}"),
+            "cpus" => cpus = Some(val.parse().context("-smp cpus")?),
+            "maxcpus" => maxcpus = Some(val.parse().context("-smp maxcpus")?),
+            "sockets" => sockets = Some(val.parse().context("-smp sockets")?),
+            "clusters" => clusters = Some(val.parse().context("-smp clusters")?),
+            "cores" => cores = Some(val.parse().context("-smp cores")?),
+            "threads" => threads = Some(val.parse().context("-smp threads")?),
+            _ => log::warn!("unsupported -smp parameter {prop}"),
         }
     }
 
-    let cpus: usize = cpus_str.parse().context("-smp")?;
-    Ok(cpus)
+    if let Some(maxcpus_val) = maxcpus {
+        // Don't support vCPU hotplug at the moment (it's not upstream and I
+        // don't know how it will appear in DT).
+        if let Some(cpus_val) = cpus {
+            if cpus_val != maxcpus_val {
+                bail!("-smp: expecting cpus == maxcpus");
+            }
+        }
+        cpus = Some(maxcpus_val);
+    }
+
+    if let Some(val) = sockets {
+        map.set_sockets(val)?;
+    }
+    if let Some(val) = clusters {
+        map.set_clusters(val)?;
+    }
+    if let Some(val) = cores {
+        map.set_cores(val)?;
+    }
+    if let Some(val) = threads {
+        map.set_threads(val)?;
+    }
+
+    let Some(cpus) = cpus else {
+        // if no "cpus" or "maxcpus" parameter is given, map is complete
+        return Ok(map);
+    };
+
+    // we still have to guess the missing parameters... Preference is cores over
+    // sockets over threads. QEMU doesn't autofill clusters so we don't either.
+    if cores.is_none() {
+        map.set_cores(cpus / (map.sockets * map.clusters * map.threads))?;
+    }
+    if sockets.is_none() {
+        map.set_sockets(cpus / (map.clusters * map.cores * map.threads))?;
+    }
+    if threads.is_none() {
+        map.set_threads(cpus / (map.sockets * map.clusters * map.cores))?;
+    }
+
+    Ok(map)
 }
 
 // Parse rme-guest object
@@ -342,9 +486,10 @@ impl DTBSurgeon for QemuParams {
     fn handle_node(&self, fdt: &mut FdtWriter, node_name: &str) -> DTBResult<bool> {
         match node_name {
             "cpus" => {
+                let num_cpus = self.cpu_map.num_cpus as u32;
                 // Not sure why, but it seems phandles are allocated in reverse
                 // order, starting at 0x8001 (pclk has 0x8000).
-                let mut phandle = 0x8000 + self.num_cpus;
+                let mut phandle = 0x8000 + num_cpus;
 
                 // For now a simple single-cluster topology
                 let cpus_node = fdt.begin_node("cpus")?;
@@ -352,21 +497,37 @@ impl DTBSurgeon for QemuParams {
                 fdt.property_u32("#address-cells", 1)?;
 
                 let map_node = fdt.begin_node("cpu-map")?;
-                let socket_node = fdt.begin_node("socket0")?;
-                let cluster_node = fdt.begin_node("cluster0")?;
-                for i in 0..self.num_cpus {
-                    let name = format!("core{i}");
-                    let core_node = fdt.begin_node(&name)?;
-                    fdt.property_u32("cpu", phandle)?;
-                    fdt.end_node(core_node)?;
-                    phandle -= 1;
+                for socket in 0..self.cpu_map.sockets {
+                    let name = format!("socket{socket}");
+                    let socket_node = fdt.begin_node(&name)?;
+                    for cluster in 0..self.cpu_map.clusters {
+                        let name = format!("cluster{cluster}");
+                        let cluster_node = fdt.begin_node(&name)?;
+                        for core in 0..self.cpu_map.cores {
+                            let name = format!("core{core}");
+                            let core_node = fdt.begin_node(&name)?;
+                            if self.cpu_map.threads > 1 {
+                                for thread in 0..self.cpu_map.threads {
+                                    let name = format!("thread{thread}");
+                                    let thread_node = fdt.begin_node(&name)?;
+                                    fdt.property_u32("cpu", phandle)?;
+                                    fdt.end_node(thread_node)?;
+                                    phandle -= 1;
+                                }
+                            } else {
+                                fdt.property_u32("cpu", phandle)?;
+                                phandle -= 1;
+                            }
+                            fdt.end_node(core_node)?;
+                        }
+                        fdt.end_node(cluster_node)?;
+                    }
+                    fdt.end_node(socket_node)?;
                 }
-                fdt.end_node(cluster_node)?;
-                fdt.end_node(socket_node)?;
                 fdt.end_node(map_node)?;
 
-                phandle = 0x8000 + self.num_cpus;
-                for i in 0..self.num_cpus {
+                phandle = 0x8000 + num_cpus;
+                for i in 0..num_cpus {
                     let node_name = format!("cpu@{i}");
                     let cpu_node = fdt.begin_node(&node_name)?;
                     fdt.property_phandle(phandle)?;
@@ -517,7 +678,7 @@ impl DTBGenerator for QemuParams {
     }
 
     fn set_num_cpus(&mut self, num_cpus: usize) {
-        self.num_cpus = num_cpus as u32;
+        self.cpu_map = CpuMap::new(num_cpus);
     }
 
     fn set_pmu(&mut self, pmu: bool) {
@@ -550,7 +711,7 @@ impl DTBGenerator for QemuParams {
 
         let (mut fdt, root_node) = fdt_new(
             self.mem(),
-            self.num_cpus as usize,
+            self.cpu_map.num_cpus,
             self.gic_phandle(),
             self.bootargs.as_deref(),
             self.initrd(),
@@ -732,7 +893,7 @@ pub fn build_params(args: &Args, qemu_args: &QemuArgs) -> Result<RealmConfig> {
 
         match arg.as_str() {
             "-m" => qemu.set_mem_size(parse_mem(raw_args)?),
-            "-smp" => qemu.set_num_cpus(parse_smp(raw_args)?),
+            "-smp" => qemu.cpu_map = parse_smp(raw_args)?,
             "-object" => parse_object(raw_args, &mut realm, &mut qemu)?,
             "-append" => parse_append(raw_args, &mut qemu)?,
             "-machine" | "-M" => parse_machine(raw_args, &mut qemu)?,
@@ -853,12 +1014,12 @@ pub fn build_params(args: &Args, qemu_args: &QemuArgs) -> Result<RealmConfig> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn string_to_args(s: &str) -> RawArgs {
+        raw_args_from_vec(&[String::from(s)])
+    }
+
     #[test]
     fn test_mem() {
-        fn string_to_args(s: &str) -> RawArgs {
-            raw_args_from_vec(&[String::from(s)])
-        }
-
         let mut args = string_to_args("hello");
         let r = parse_mem(&mut args);
         assert!(r.is_err());
@@ -886,5 +1047,63 @@ mod tests {
         let mut args = string_to_args("size=2,slots=2");
         let r = parse_mem(&mut args);
         assert!(r.is_err());
+    }
+
+    #[test]
+    fn test_smp() {
+        let mut args = string_to_args("abc");
+        let r = parse_smp(&mut args);
+        assert!(r.is_err());
+
+        let mut cpu_map = CpuMap::new(1);
+        assert_eq!(cpu_map.num_cpus, 1);
+
+        assert!(cpu_map.set_threads(0).is_err());
+        assert!(cpu_map.set_threads(1).is_ok());
+        assert_eq!(cpu_map.num_cpus, 1);
+
+        let mut args = string_to_args("4");
+        let r = parse_smp(&mut args).unwrap();
+        assert_eq!(r.threads, 1);
+        assert_eq!(r.cores, 4);
+        assert_eq!(r.clusters, 1);
+        assert_eq!(r.sockets, 1);
+        assert_eq!(r.num_cpus, 4);
+
+        let mut args = string_to_args("cpus=4");
+        let r = parse_smp(&mut args).unwrap();
+        assert_eq!(r.cores, 4);
+        assert_eq!(r.num_cpus, 4);
+
+        let mut args = string_to_args("cores=4");
+        let r = parse_smp(&mut args).unwrap();
+        assert_eq!(r.cores, 4);
+        assert_eq!(r.num_cpus, 4);
+
+        let mut args = string_to_args("maxcpus=4");
+        let r = parse_smp(&mut args).unwrap();
+        assert_eq!(r.cores, 4);
+        assert_eq!(r.num_cpus, 4);
+
+        let mut args = string_to_args("cores=2,maxcpus=8");
+        let r = parse_smp(&mut args).unwrap();
+        assert_eq!(r.cores, 2);
+        assert_eq!(r.sockets, 4);
+        assert_eq!(r.num_cpus, 8);
+
+        let mut args = string_to_args("cores=2,sockets=2,maxcpus=16");
+        let r = parse_smp(&mut args).unwrap();
+        assert_eq!(r.cores, 2);
+        assert_eq!(r.sockets, 2);
+        assert_eq!(r.threads, 4);
+        assert_eq!(r.num_cpus, 16);
+
+        let mut args = string_to_args("threads=2,cores=2,sockets=2,clusters=2");
+        let r = parse_smp(&mut args).unwrap();
+        assert_eq!(r.cores, 2);
+        assert_eq!(r.sockets, 2);
+        assert_eq!(r.threads, 2);
+        assert_eq!(r.clusters, 2);
+        assert_eq!(r.num_cpus, 16);
     }
 }
