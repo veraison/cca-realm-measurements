@@ -38,11 +38,10 @@ const QEMU_PCI_MMIO_SIZE: u64 = 0x2eff0000;
 const QEMU_PCI_IOPORT_BASE: u64 = 0x3eff0000;
 const QEMU_PCI_IOPORT_SIZE: u64 = 0x00010000;
 const QEMU_MEM_BASE: u64 = 0x40000000;
+// Floating regions
 const QEMU_HIGH_REDIST_BASE: u64 = 0x40_00000000;
 const QEMU_HIGH_REDIST_SIZE: u64 = 64 * MIB;
-const QEMU_HIGH_PCI_CFG_BASE: u64 = 0x40_10000000;
 const QEMU_HIGH_PCI_CFG_SIZE: u64 = 256 * MIB;
-const QEMU_HIGH_PCI_MMIO_BASE: u64 = 0x80_00000000;
 const QEMU_HIGH_PCI_MMIO_SIZE: u64 = 512 * GIB;
 
 const QEMU_BASE_PHANDLE: u32 = 0x8000;
@@ -213,11 +212,38 @@ impl QemuSmp {
     }
 }
 
+/// Memory specification for QEMU
+#[derive(Clone, Debug, Default, PartialEq)]
+struct QemuMem {
+    size: u64,
+    // Hotpluggable slots
+    slots: Option<usize>,
+    // Maximum possible memory after hotplug
+    max_size: Option<u64>,
+}
+
+impl QemuMem {
+    fn new(size: u64) -> Self {
+        Self {
+            size,
+            slots: None,
+            max_size: None,
+        }
+    }
+
+    fn get_max_size(&self) -> u64 {
+        self.max_size.unwrap_or(self.size)
+    }
+}
+
 /// QEMU configuration
 #[derive(Clone, Debug, Default)]
 pub struct QemuParams {
     cpu_map: CpuMap,
-    mem_size: u64,
+    mem: QemuMem,
+    high_redist_base: u64,
+    high_pci_cfg_base: u64,
+    high_pci_mmio_base: u64,
     // Kernel command line
     bootargs: Option<String>,
     // Guest address
@@ -236,7 +262,7 @@ impl QemuParams {
     pub fn new() -> Self {
         Self {
             cpu_map: CpuMap::new(1),
-            mem_size: 128 * MIB,
+            mem: QemuMem::new(128 * MIB),
             // On recent virt machines, ITS is enabled by default
             has_its: true,
             has_acpi: true,
@@ -269,7 +295,7 @@ impl QemuParams {
         ];
 
         if self.redist_regions() == 2 {
-            gic_regs.push(QEMU_HIGH_REDIST_BASE);
+            gic_regs.push(self.high_redist_base);
             gic_regs.push(QEMU_HIGH_REDIST_SIZE)
         }
         gic_regs
@@ -283,6 +309,40 @@ impl QemuParams {
         } else {
             1
         }
+    }
+
+    // Update the memory parameters, find out the address of the high PCI region.
+    // Return the minimum IPA size allowed by the memory constraints provided by
+    // the user.
+    fn update_memmap(&mut self, mem: QemuMem) -> VmmResult<u8> {
+        // The virt memory map is fixed up the the resident RAM, then it depends
+        // on the -m parameter. Above resident RAM there is hotplug RAM, then
+        // extra GIC redistributors, then PCIe extra ECAM and MMIO regions.
+
+        let mem_slots = mem.slots.unwrap_or(0) as u64;
+        let hotplug_mem_base = align_up(QEMU_MEM_BASE + mem.size, GIB);
+        let hotplug_mem_size = mem.get_max_size() - mem.size + mem_slots * GIB;
+        let mut addr = hotplug_mem_base + align_up(hotplug_mem_size, GIB);
+
+        if addr < QEMU_HIGH_REDIST_BASE {
+            addr = QEMU_HIGH_REDIST_BASE;
+        }
+
+        self.high_redist_base = align_up(addr, QEMU_HIGH_REDIST_SIZE);
+        addr += QEMU_HIGH_REDIST_SIZE;
+        self.high_pci_cfg_base = align_up(addr, QEMU_HIGH_PCI_CFG_SIZE);
+        addr += QEMU_HIGH_PCI_CFG_SIZE;
+        self.high_pci_mmio_base = align_up(addr, QEMU_HIGH_PCI_MMIO_SIZE);
+        addr += QEMU_HIGH_PCI_MMIO_SIZE;
+
+        self.mem = mem;
+
+        // The IPA size is the number of bits of the highest address. x2 for a
+        // Realm, to support the upper shared region.
+        let ipa_bits = addr.checked_ilog2().ok_or(VmmError::Other(
+            "unexpected failure counting IPA bits".to_string(),
+        ))? as u8;
+        Ok(ipa_bits + 2)
     }
 }
 
@@ -305,23 +365,24 @@ fn parse_bool(dest: &mut bool, val: &str) -> Result<()> {
 }
 
 // Parse -m argument, return the memory size in bytes
-fn parse_mem(raw_args: &mut RawArgs) -> Result<u64> {
+fn parse_mem(raw_args: &mut RawArgs, mem: &mut QemuMem) -> Result<()> {
     let arg = pop_arg(raw_args, "-m")?;
 
-    let mut size_str = "";
     for item in arg.split(',') {
         let Some((prop, val)) = item.split_once('=') else {
-            size_str = item;
+            mem.size = parse_memory_size(item).context("-m")?;
             continue;
         };
 
         match prop {
-            "size" => size_str = val,
+            "size" => mem.size = parse_memory_size(val).context("-m size")?,
+            "slots" => mem.slots = Some(val.parse().context("-m slots")?),
+            "maxmem" => mem.max_size = Some(parse_memory_size(val).context("-m maxmem")?),
             _ => bail!("unsupported -m parameter {prop}"),
         }
     }
 
-    parse_memory_size(size_str).context("-m")
+    Ok(())
 }
 
 // Parse -smp argument, return number of vCPUs
@@ -645,6 +706,42 @@ impl DTBSurgeon for QemuParams {
                     }
                     return Ok(true);
                 }
+                "ranges" => {
+                    fdt.property_array_u32(
+                        "ranges",
+                        &[
+                            FDT_PCI_RANGE_IOPORT,
+                            0,
+                            0,
+                            0,
+                            lo(QEMU_PCI_IOPORT_BASE),
+                            0,
+                            lo(QEMU_PCI_IOPORT_SIZE),
+                            FDT_PCI_RANGE_MMIO,
+                            0,
+                            lo(QEMU_PCI_MMIO_BASE),
+                            0,
+                            lo(QEMU_PCI_MMIO_BASE),
+                            0,
+                            lo(QEMU_PCI_MMIO_SIZE),
+                            FDT_PCI_RANGE_MMIO_64BIT,
+                            hi(self.high_pci_mmio_base),
+                            lo(self.high_pci_mmio_base),
+                            hi(self.high_pci_mmio_base),
+                            lo(self.high_pci_mmio_base),
+                            hi(QEMU_HIGH_PCI_MMIO_SIZE),
+                            lo(QEMU_HIGH_PCI_MMIO_SIZE),
+                        ],
+                    )?;
+                    return Ok(true);
+                }
+                "reg" => {
+                    fdt.property_array_u64(
+                        "reg",
+                        &[self.high_pci_cfg_base, QEMU_HIGH_PCI_CFG_SIZE],
+                    )?;
+                    return Ok(true);
+                }
                 _ => (),
             },
             "pl061@9030000" => {
@@ -666,7 +763,7 @@ impl DTBSurgeon for QemuParams {
     }
 
     fn mem(&self) -> (u64, u64) {
-        (QEMU_MEM_BASE, self.mem_size)
+        (QEMU_MEM_BASE, self.mem.size)
     }
 
     fn initrd(&self) -> Option<(u64, u64)> {
@@ -688,7 +785,7 @@ impl DTBGenerator for QemuParams {
     }
 
     fn set_mem_size(&mut self, mem_size: u64) -> VmmResult<()> {
-        self.mem_size = mem_size;
+        self.update_memmap(QemuMem::new(mem_size))?;
         Ok(())
     }
 
@@ -772,34 +869,8 @@ impl DTBGenerator for QemuParams {
         let devfn_mask = pci_devfn(0x3, 0) as u32;
         fdt.property_array_u32("interrupt-map-mask", &[devfn_mask << 8, 0, 0, 0x7])?;
         fdt.property_u32("#interrupt-cells", 1)?;
-        fdt.property_array_u32(
-            "ranges",
-            &[
-                FDT_PCI_RANGE_IOPORT,
-                0,
-                0,
-                0,
-                lo(QEMU_PCI_IOPORT_BASE),
-                0,
-                lo(QEMU_PCI_IOPORT_SIZE),
-                FDT_PCI_RANGE_MMIO,
-                0,
-                lo(QEMU_PCI_MMIO_BASE),
-                0,
-                lo(QEMU_PCI_MMIO_BASE),
-                0,
-                lo(QEMU_PCI_MMIO_SIZE),
-                FDT_PCI_RANGE_MMIO_64BIT,
-                hi(QEMU_HIGH_PCI_MMIO_BASE),
-                lo(QEMU_HIGH_PCI_MMIO_BASE),
-                hi(QEMU_HIGH_PCI_MMIO_BASE),
-                lo(QEMU_HIGH_PCI_MMIO_BASE),
-                hi(QEMU_HIGH_PCI_MMIO_SIZE),
-                lo(QEMU_HIGH_PCI_MMIO_SIZE),
-            ],
-        )?;
-
-        fdt.property_array_u64("reg", &[QEMU_HIGH_PCI_CFG_BASE, QEMU_HIGH_PCI_CFG_SIZE])?;
+        self.handle_property(&mut fdt, &pcie_name, "ranges", &[])?;
+        self.handle_property(&mut fdt, &pcie_name, "reg", &[])?;
         self.handle_property(&mut fdt, &pcie_name, "msi-map", &[])?;
         fdt.property_null("dma-coherent")?;
         fdt.property_array_u32("bus-range", &[0, 0xff])?;
@@ -870,25 +941,6 @@ impl DTBGenerator for QemuParams {
     }
 }
 
-fn check_memmap(realm: &mut RealmConfig, qemu: &mut QemuParams) -> Result<()> {
-    let Some(ipa_bits) = realm.params.ipa_bits else {
-        bail!("max IPA size is not known");
-    };
-    if ipa_bits < 41 {
-        bail!("the VM needs at least 41 IPA bits to fit the memory map");
-    }
-
-    // Memory hotplug is not supported at the moment, not is variable memory map.
-    if qemu.mem_size > 255 * GIB {
-        bail!("no more than 255GB of RAM is supported");
-    }
-
-    // The high PCI regions require 40 IPA bits, and we reserve one more for NS
-    // memory
-    realm.params.restrict_ipa_bits(41)?;
-    Ok(())
-}
-
 /// Create a [RealmConfig] from the QEMU command-line.
 pub fn build_params(args: &Args, qemu_args: &QemuArgs) -> Result<RealmConfig> {
     let mut use_firmware = false;
@@ -900,6 +952,7 @@ pub fn build_params(args: &Args, qemu_args: &QemuArgs) -> Result<RealmConfig> {
     let mut realm = RealmConfig::from_args(args)?;
     let mut qemu = QemuParams::new();
     let mut smp = QemuSmp::default();
+    let mut mem = qemu.mem.clone();
 
     realm.set_measurement_algo("sha512")?;
 
@@ -908,7 +961,7 @@ pub fn build_params(args: &Args, qemu_args: &QemuArgs) -> Result<RealmConfig> {
         let arg = split_arg_eq(raw_args, &arg);
 
         match arg.as_str() {
-            "-m" => qemu.set_mem_size(parse_mem(raw_args)?)?,
+            "-m" => parse_mem(raw_args, &mut mem)?,
             "-smp" => parse_smp(raw_args, &mut smp)?,
             "-object" => parse_object(raw_args, &mut realm, &mut qemu)?,
             "-append" => parse_append(raw_args, &mut qemu)?,
@@ -944,11 +997,10 @@ pub fn build_params(args: &Args, qemu_args: &QemuArgs) -> Result<RealmConfig> {
 
     qemu.cpu_map = smp.to_cpu_map()?;
     qemu.set_pmu(realm.params.pmu.is_some_and(|v| v));
+    let ipa_bits = qemu.update_memmap(mem)?;
+    realm.params.restrict_ipa_bits(ipa_bits)?;
 
-    // Ensure the memory map fits within the requested parameters
-    check_memmap(&mut realm, &mut qemu)?;
-
-    realm.add_ram(QEMU_MEM_BASE, qemu.mem_size)?;
+    realm.add_ram(QEMU_MEM_BASE, qemu.mem.size)?;
 
     // Now load the blobs. We support these scenarios:
     // (a) direct kernel boot without firmware
@@ -965,7 +1017,7 @@ pub fn build_params(args: &Args, qemu_args: &QemuArgs) -> Result<RealmConfig> {
 
         qemu.kernel_start = kernel.guest_start;
 
-        let mut initrd_start = QEMU_MEM_BASE + min(qemu.mem_size / 2, 128u64 * MIB);
+        let mut initrd_start = QEMU_MEM_BASE + min(qemu.mem.size / 2, 128u64 * MIB);
         let mut initrd_size = 0;
         // Avoid overriding kernel
         initrd_start = max(initrd_start, qemu.kernel_start + kernel_load_size);
@@ -1037,33 +1089,116 @@ mod tests {
 
     #[test]
     fn test_mem() {
+        let mut mem = QemuMem::new(256 * MIB);
         let mut args = string_to_args("hello");
-        let r = parse_mem(&mut args);
+        let r = parse_mem(&mut args, &mut mem);
         assert!(r.is_err());
 
-        let mut args = string_to_args("1");
-        let r = parse_mem(&mut args).unwrap();
-        assert_eq!(r, MIB);
+        fn _parse_args(args: &str) -> QemuMem {
+            let mut args = string_to_args(args);
+            let mut mem = QemuMem::new(256 * MIB);
+            assert!(parse_mem(&mut args, &mut mem).is_ok());
+            mem
+        }
 
-        let mut args = string_to_args("512");
-        let r = parse_mem(&mut args).unwrap();
-        assert_eq!(r, 512 * MIB);
+        let r = _parse_args("1");
+        assert_eq!(r.size, MIB);
+        assert_eq!(r.slots, None);
+        assert_eq!(r.max_size, None);
 
-        let mut args = string_to_args("size=512M");
-        let r = parse_mem(&mut args).unwrap();
-        assert_eq!(r, 512 * MIB);
+        let r = _parse_args("512");
+        assert_eq!(r.size, 512 * MIB);
 
-        let mut args = string_to_args("512G");
-        let r = parse_mem(&mut args).unwrap();
-        assert_eq!(r, 512 * GIB);
+        let r = _parse_args("size=512M");
+        assert_eq!(r.size, 512 * MIB);
 
-        let mut args = string_to_args("size=2");
-        let r = parse_mem(&mut args).unwrap();
-        assert_eq!(r, 2 * MIB);
+        let r = _parse_args("512G");
+        assert_eq!(r.size, 512 * GIB);
 
-        let mut args = string_to_args("size=2,slots=2");
-        let r = parse_mem(&mut args);
-        assert!(r.is_err());
+        let r = _parse_args("size=2");
+        assert_eq!(r.size, 2 * MIB);
+
+        let r = _parse_args("size=2,slots=2");
+        assert_eq!(r.size, 2 * MIB);
+        assert_eq!(r.slots, Some(2));
+        assert_eq!(r.max_size, None);
+
+        let r = _parse_args("size=2,maxmem=1T");
+        assert_eq!(r.size, 2 * MIB);
+        assert_eq!(r.slots, None);
+        assert_eq!(r.max_size, Some(TIB));
+
+        // QEMU supports setting memory with multiple args
+        let mut args = string_to_args("2");
+        let mut mem = QemuMem::new(256 * MIB);
+        assert!(parse_mem(&mut args, &mut mem).is_ok());
+        assert_eq!(mem.size, 2 * MIB);
+        assert_eq!(mem.slots, None);
+        assert_eq!(mem.max_size, None);
+        let mut args = string_to_args("maxmem=1T");
+        assert!(parse_mem(&mut args, &mut mem).is_ok());
+        assert_eq!(mem.size, 2 * MIB);
+        assert_eq!(mem.slots, None);
+        assert_eq!(mem.max_size, Some(TIB));
+        let mut args = string_to_args("slots=2");
+        assert!(parse_mem(&mut args, &mut mem).is_ok());
+        assert_eq!(mem.size, 2 * MIB);
+        assert_eq!(mem.slots, Some(2));
+        assert_eq!(mem.max_size, Some(TIB));
+        let mut args = string_to_args("size=4");
+        assert!(parse_mem(&mut args, &mut mem).is_ok());
+        assert_eq!(mem.size, 4 * MIB);
+        assert_eq!(mem.slots, Some(2));
+        assert_eq!(mem.max_size, Some(TIB));
+    }
+
+    #[test]
+    fn test_memory_map() {
+        const QEMU_HIGH_PCI_CFG_BASE: u64 = 0x40_10000000;
+        const QEMU_HIGH_PCI_MMIO_BASE: u64 = 0x80_00000000;
+
+        // See if we obtain the right memory map and IPA sizes with different
+        // memory specifications
+
+        let mut qemu = QemuParams::new();
+        assert_eq!(qemu.mem.size, 128 * MIB);
+        assert_eq!(qemu.high_redist_base, 0);
+        assert_eq!(qemu.high_pci_cfg_base, 0);
+        assert_eq!(qemu.high_pci_mmio_base, 0);
+        let mem = QemuMem::new(MIB);
+        let ipa = qemu.update_memmap(mem).unwrap();
+        assert_eq!(qemu.mem.size, MIB);
+        assert_eq!(qemu.mem.max_size, None);
+        assert_eq!(qemu.mem.slots, None);
+        assert_eq!(qemu.high_redist_base, QEMU_HIGH_REDIST_BASE);
+        assert_eq!(qemu.high_pci_cfg_base, QEMU_HIGH_PCI_CFG_BASE);
+        assert_eq!(qemu.high_pci_mmio_base, QEMU_HIGH_PCI_MMIO_BASE);
+        assert_eq!(ipa, 41);
+
+        let mut qemu = QemuParams::new();
+        let mut mem = QemuMem::new(MIB);
+        mem.max_size = Some(TIB);
+        let ipa = qemu.update_memmap(mem).unwrap();
+        assert_eq!(qemu.mem.size, MIB);
+        assert_eq!(qemu.mem.max_size, Some(TIB));
+        assert_eq!(qemu.mem.slots, None);
+        assert_eq!(qemu.high_redist_base, 0x100_80000000);
+        assert_eq!(qemu.high_pci_cfg_base, 0x100_90000000);
+        assert_eq!(qemu.high_pci_mmio_base, 0x180_00000000);
+        assert_eq!(ipa, 42);
+
+        let mut qemu = QemuParams::new();
+        let mut mem = QemuMem::new(MIB);
+        mem.max_size = Some(256 * TIB);
+        mem.slots = Some(12);
+        let ipa = qemu.update_memmap(mem).unwrap();
+        assert_eq!(qemu.mem.size, MIB);
+        assert_eq!(qemu.mem.max_size, Some(256 * TIB));
+        assert_eq!(qemu.mem.slots, Some(12));
+        assert_eq!(qemu.high_redist_base, 0x10003_80000000);
+        assert_eq!(qemu.high_pci_cfg_base, 0x10003_90000000);
+        assert_eq!(qemu.high_pci_mmio_base, 0x10080_00000000);
+        assert_eq!(ipa, 50);
     }
 
     #[test]
