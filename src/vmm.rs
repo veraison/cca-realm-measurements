@@ -1,7 +1,8 @@
+use flate2::read::GzDecoder;
 use memmap2::Mmap;
 use std::fmt::{self, Debug};
 use std::fs::File;
-use std::io::{Read, Write};
+use std::io::{Read, Seek, SeekFrom, Write};
 
 use crate::dtb_surgeon;
 use crate::realm::RealmConfig;
@@ -213,33 +214,33 @@ struct LinuxArm64Header {
 }
 
 impl LinuxArm64Header {
-    fn read(file: &mut File) -> std::io::Result<Self> {
+    fn read(stream: &mut impl Read) -> std::io::Result<Self> {
         Ok(LinuxArm64Header {
-            code0: read_hdr_u32(file)?,
-            code1: read_hdr_u32(file)?,
-            text_offset: read_hdr_u64(file)?,
-            load_size: read_hdr_u64(file)?,
-            flags: read_hdr_u64(file)?,
-            res2: read_hdr_u64(file)?,
-            res3: read_hdr_u64(file)?,
-            res4: read_hdr_u64(file)?,
-            magic: read_hdr_u32(file)?,
-            res5: read_hdr_u32(file)?,
+            code0: read_hdr_u32(stream)?,
+            code1: read_hdr_u32(stream)?,
+            text_offset: read_hdr_u64(stream)?,
+            load_size: read_hdr_u64(stream)?,
+            flags: read_hdr_u64(stream)?,
+            res2: read_hdr_u64(stream)?,
+            res3: read_hdr_u64(stream)?,
+            res4: read_hdr_u64(stream)?,
+            magic: read_hdr_u32(stream)?,
+            res5: read_hdr_u32(stream)?,
         })
     }
 }
 
-fn read_hdr_u32(file: &mut File) -> std::io::Result<u32> {
+fn read_hdr_u32(stream: &mut impl Read) -> std::io::Result<u32> {
     let mut b = [0; 4];
 
-    file.read_exact(&mut b)?;
+    stream.read_exact(&mut b)?;
     Ok(u32::from_le_bytes(b))
 }
 
-fn read_hdr_u64(file: &mut File) -> std::io::Result<u64> {
+fn read_hdr_u64(stream: &mut impl Read) -> std::io::Result<u64> {
     let mut b = [0; 8];
 
-    file.read_exact(&mut b)?;
+    stream.read_exact(&mut b)?;
     Ok(u64::from_le_bytes(b))
 }
 
@@ -256,13 +257,37 @@ pub fn load_kernel(filename: &str, guest_start: GuestAddress) -> Result<VmmBlob>
         filename: filename.to_string(),
         e,
     })?;
-    let header = LinuxArm64Header::read(&mut file).map_err(|e| VmmError::File {
+
+    let mut header = LinuxArm64Header::read(&mut file).map_err(|e| VmmError::File {
         filename: filename.to_string(),
         e,
     })?;
 
-    // TODO: decompress a bz2 image, since QEMU supports that.
-    // For now expect a decompressed image.
+    if header.magic != 0x644d5241 {
+        file.seek(SeekFrom::Start(0)).map_err(|e| VmmError::File {
+            filename: filename.to_string(),
+            e,
+        })?;
+
+        // Try decompressing a GZip file, since QEMU supports that
+        let mut gz = GzDecoder::new(file);
+        let mut content: Vec<u8> = vec![];
+
+        gz.read_to_end(&mut content).map_err(|e| VmmError::File {
+            filename: filename.to_string(),
+            e,
+        })?;
+
+        let mut head = [0; 64];
+        head.copy_from_slice(&content[..64]);
+        header = LinuxArm64Header::read(&mut &head[..]).map_err(|e| VmmError::File {
+            filename: filename.to_string(),
+            e,
+        })?;
+
+        blob = VmmBlob::from_bytes(content, guest_start);
+    }
+
     if header.magic != 0x644d5241 {
         return Err(VmmError::InvalidLinuxHeader);
     }
@@ -387,9 +412,25 @@ mod tests {
         };
         assert_eq!(e.kind(), std::io::ErrorKind::UnexpectedEof);
 
-        let mut b = load_kernel("testdata/linux-header.bin", 0x80000000).unwrap();
-        assert_eq!(b.len().unwrap(), 64);
-        assert_eq!(b.load_size.unwrap(), 0x2c80000);
+        let mut b = load_kernel("testdata/linux.bin", 0x80000000).unwrap();
+        assert_eq!(b.len().unwrap(), 256);
+        assert_eq!(b.load_size.unwrap(), 0x2d10000);
         assert_eq!(b.guest_start, 0x80000000);
+
+        let mut b = load_kernel("testdata/linux.bin.gz", 0x80000000).unwrap();
+        assert_eq!(b.len().unwrap(), 256);
+        assert_eq!(b.load_size.unwrap(), 0x2d10000);
+        assert_eq!(b.guest_start, 0x80000000);
+
+        let b = load_kernel("testdata/randombytes.bin", 0x80000000);
+        assert!(b.is_err());
+        let VmmError::File { e, filename: _ } = b.as_ref().unwrap_err() else {
+            panic!("invalid error, got {b:?}");
+        };
+        assert_eq!(e.kind(), std::io::ErrorKind::InvalidInput);
+
+        let b = load_kernel("testdata/randombytes.bin.gz", 0x80000000);
+        assert!(b.is_err());
+        assert!(matches!(b, Err(VmmError::InvalidLinuxHeader)));
     }
 }
