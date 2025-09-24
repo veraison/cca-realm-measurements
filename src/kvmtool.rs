@@ -247,7 +247,7 @@ fn parse_mem(arg: &Option<String>, kvmtool: &mut KvmtoolParams) -> Result<()> {
         bail!("invalid mem");
     };
 
-    kvmtool.set_mem_size(parse_memory_size(mem_str).context("-m")?);
+    kvmtool.set_mem_size(parse_memory_size(mem_str).context("-m")?)?;
     if !is_aligned(kvmtool.mem_size, 2 * MIB) {
         bail!("RAM size must be aligned on 2MB");
     }
@@ -538,8 +538,9 @@ impl DTBGenerator for KvmtoolParams {
         self.log = Some((base, size));
     }
 
-    fn set_mem_size(&mut self, mem_size: u64) {
+    fn set_mem_size(&mut self, mem_size: u64) -> VmmResult<()> {
         self.mem_size = mem_size;
+        Ok(())
     }
 
     fn set_num_cpus(&mut self, num_cpus: usize) {

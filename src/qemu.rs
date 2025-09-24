@@ -687,8 +687,9 @@ impl DTBGenerator for QemuParams {
         self.log = Some((base, size));
     }
 
-    fn set_mem_size(&mut self, mem_size: u64) {
+    fn set_mem_size(&mut self, mem_size: u64) -> VmmResult<()> {
         self.mem_size = mem_size;
+        Ok(())
     }
 
     fn set_num_cpus(&mut self, num_cpus: usize) {
@@ -907,7 +908,7 @@ pub fn build_params(args: &Args, qemu_args: &QemuArgs) -> Result<RealmConfig> {
         let arg = split_arg_eq(raw_args, &arg);
 
         match arg.as_str() {
-            "-m" => qemu.set_mem_size(parse_mem(raw_args)?),
+            "-m" => qemu.set_mem_size(parse_mem(raw_args)?)?,
             "-smp" => parse_smp(raw_args, &mut smp)?,
             "-object" => parse_object(raw_args, &mut realm, &mut qemu)?,
             "-append" => parse_append(raw_args, &mut qemu)?,

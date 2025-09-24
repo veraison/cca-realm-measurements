@@ -495,7 +495,7 @@ impl<'a> TcgEventLog<'a> {
             ));
         }
         gen.set_num_cpus(num_cpus as usize);
-        gen.set_mem_size(ram_size);
+        gen.set_mem_size(ram_size)?;
         gen.set_its(true); // TODO
         gen.set_bootargs("console=hvc0"); // TODO
 

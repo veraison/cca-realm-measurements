@@ -303,7 +303,7 @@ pub trait DTBGenerator {
     /// Set number of CPUs
     fn set_num_cpus(&mut self, num_cpus: usize);
     /// Set RAM size
-    fn set_mem_size(&mut self, mem_size: u64);
+    fn set_mem_size(&mut self, mem_size: u64) -> Result<()>;
 
     /// Add DTB to the realm, and optionally write it to file @output
     fn add_dtb(
