@@ -149,6 +149,70 @@ impl CpuMap {
     }
 }
 
+// QEMU -smp specification
+#[derive(Clone, Debug, Default, PartialEq)]
+struct QemuSmp {
+    cpus: Option<usize>,
+    maxcpus: Option<usize>,
+    sockets: Option<usize>,
+    clusters: Option<usize>,
+    cores: Option<usize>,
+    threads: Option<usize>,
+}
+
+impl QemuSmp {
+    // Return the CPU map corresponding to this SMP specification
+    fn to_cpu_map(&self) -> Result<CpuMap> {
+        let mut cpus = 0;
+        let mut map = CpuMap::new(1);
+
+        if let Some(maxcpus_val) = self.maxcpus {
+            // Don't support vCPU hotplug at the moment (it's not upstream and I
+            // don't know how it will appear in DT).
+            if let Some(cpus_val) = self.cpus {
+                if cpus_val != maxcpus_val {
+                    bail!("-smp: expecting cpus == maxcpus");
+                }
+            }
+            cpus = maxcpus_val;
+        } else if let Some(cpus_val) = self.cpus {
+            cpus = cpus_val;
+        }
+
+        if let Some(val) = self.sockets {
+            map.set_sockets(val)?;
+        }
+        if let Some(val) = self.clusters {
+            map.set_clusters(val)?;
+        }
+        if let Some(val) = self.cores {
+            map.set_cores(val)?;
+        }
+        if let Some(val) = self.threads {
+            map.set_threads(val)?;
+        }
+
+        if cpus == 0 {
+            // if no "cpus" or "maxcpus" parameter is given, map is complete
+            return Ok(map);
+        }
+
+        // we still have to guess the missing parameters... Preference is cores over
+        // sockets over threads. QEMU doesn't autofill clusters so we don't either.
+        if self.cores.is_none() {
+            map.set_cores(cpus / (map.sockets * map.clusters * map.threads))?;
+        }
+        if self.sockets.is_none() {
+            map.set_sockets(cpus / (map.clusters * map.cores * map.threads))?;
+        }
+        if self.threads.is_none() {
+            map.set_threads(cpus / (map.sockets * map.clusters * map.cores))?;
+        }
+
+        Ok(map)
+    }
+}
+
 /// QEMU configuration
 #[derive(Clone, Debug, Default)]
 pub struct QemuParams {
@@ -261,76 +325,26 @@ fn parse_mem(raw_args: &mut RawArgs) -> Result<u64> {
 }
 
 // Parse -smp argument, return number of vCPUs
-fn parse_smp(raw_args: &mut RawArgs) -> Result<CpuMap> {
+fn parse_smp(raw_args: &mut RawArgs, spec: &mut QemuSmp) -> Result<()> {
     let arg = pop_arg(raw_args, "-smp")?;
-    let mut cpus: Option<usize> = None;
-    let mut maxcpus: Option<usize> = None;
-    let mut sockets: Option<usize> = None;
-    let mut clusters: Option<usize> = None;
-    let mut cores: Option<usize> = None;
-    let mut threads: Option<usize> = None;
-
-    let mut map = CpuMap::new(1);
 
     for item in arg.split(',') {
         let Some((prop, val)) = item.split_once('=') else {
-            cpus = Some(item.parse().context("-smp")?);
+            spec.cpus = Some(item.parse().context("-smp")?);
             continue;
         };
 
         match prop {
-            "cpus" => cpus = Some(val.parse().context("-smp cpus")?),
-            "maxcpus" => maxcpus = Some(val.parse().context("-smp maxcpus")?),
-            "sockets" => sockets = Some(val.parse().context("-smp sockets")?),
-            "clusters" => clusters = Some(val.parse().context("-smp clusters")?),
-            "cores" => cores = Some(val.parse().context("-smp cores")?),
-            "threads" => threads = Some(val.parse().context("-smp threads")?),
+            "cpus" => spec.cpus = Some(val.parse().context("-smp cpus")?),
+            "maxcpus" => spec.maxcpus = Some(val.parse().context("-smp maxcpus")?),
+            "sockets" => spec.sockets = Some(val.parse().context("-smp sockets")?),
+            "clusters" => spec.clusters = Some(val.parse().context("-smp clusters")?),
+            "cores" => spec.cores = Some(val.parse().context("-smp cores")?),
+            "threads" => spec.threads = Some(val.parse().context("-smp threads")?),
             _ => log::warn!("unsupported -smp parameter {prop}"),
         }
     }
-
-    if let Some(maxcpus_val) = maxcpus {
-        // Don't support vCPU hotplug at the moment (it's not upstream and I
-        // don't know how it will appear in DT).
-        if let Some(cpus_val) = cpus {
-            if cpus_val != maxcpus_val {
-                bail!("-smp: expecting cpus == maxcpus");
-            }
-        }
-        cpus = Some(maxcpus_val);
-    }
-
-    if let Some(val) = sockets {
-        map.set_sockets(val)?;
-    }
-    if let Some(val) = clusters {
-        map.set_clusters(val)?;
-    }
-    if let Some(val) = cores {
-        map.set_cores(val)?;
-    }
-    if let Some(val) = threads {
-        map.set_threads(val)?;
-    }
-
-    let Some(cpus) = cpus else {
-        // if no "cpus" or "maxcpus" parameter is given, map is complete
-        return Ok(map);
-    };
-
-    // we still have to guess the missing parameters... Preference is cores over
-    // sockets over threads. QEMU doesn't autofill clusters so we don't either.
-    if cores.is_none() {
-        map.set_cores(cpus / (map.sockets * map.clusters * map.threads))?;
-    }
-    if sockets.is_none() {
-        map.set_sockets(cpus / (map.clusters * map.cores * map.threads))?;
-    }
-    if threads.is_none() {
-        map.set_threads(cpus / (map.sockets * map.clusters * map.cores))?;
-    }
-
-    Ok(map)
+    Ok(())
 }
 
 // Parse rme-guest object
@@ -884,6 +898,7 @@ pub fn build_params(args: &Args, qemu_args: &QemuArgs) -> Result<RealmConfig> {
 
     let mut realm = RealmConfig::from_args(args)?;
     let mut qemu = QemuParams::new();
+    let mut smp = QemuSmp::default();
 
     realm.set_measurement_algo("sha512")?;
 
@@ -893,7 +908,7 @@ pub fn build_params(args: &Args, qemu_args: &QemuArgs) -> Result<RealmConfig> {
 
         match arg.as_str() {
             "-m" => qemu.set_mem_size(parse_mem(raw_args)?),
-            "-smp" => qemu.cpu_map = parse_smp(raw_args)?,
+            "-smp" => parse_smp(raw_args, &mut smp)?,
             "-object" => parse_object(raw_args, &mut realm, &mut qemu)?,
             "-append" => parse_append(raw_args, &mut qemu)?,
             "-machine" | "-M" => parse_machine(raw_args, &mut qemu)?,
@@ -926,6 +941,7 @@ pub fn build_params(args: &Args, qemu_args: &QemuArgs) -> Result<RealmConfig> {
         }
     }
 
+    qemu.cpu_map = smp.to_cpu_map()?;
     qemu.set_pmu(realm.params.pmu.is_some_and(|v| v));
 
     // Ensure the memory map fits within the requested parameters
@@ -1051,59 +1067,78 @@ mod tests {
 
     #[test]
     fn test_smp() {
+        let mut map = CpuMap::new(1);
+        assert_eq!(map.num_cpus, 1);
+
+        assert!(map.set_threads(0).is_err());
+        assert!(map.set_threads(1).is_ok());
+        assert_eq!(map.num_cpus, 1);
+
+        let mut smp = QemuSmp::default();
         let mut args = string_to_args("abc");
-        let r = parse_smp(&mut args);
-        assert!(r.is_err());
+        assert!(parse_smp(&mut args, &mut smp).is_err());
 
-        let mut cpu_map = CpuMap::new(1);
-        assert_eq!(cpu_map.num_cpus, 1);
+        fn _parse_args(args: &str) -> CpuMap {
+            let mut smp = QemuSmp::default();
+            let mut args = string_to_args(args);
+            assert!(parse_smp(&mut args, &mut smp).is_ok());
+            smp.to_cpu_map().unwrap()
+        }
 
-        assert!(cpu_map.set_threads(0).is_err());
-        assert!(cpu_map.set_threads(1).is_ok());
-        assert_eq!(cpu_map.num_cpus, 1);
-
-        let mut args = string_to_args("4");
-        let r = parse_smp(&mut args).unwrap();
+        let r = _parse_args("4");
         assert_eq!(r.threads, 1);
         assert_eq!(r.cores, 4);
         assert_eq!(r.clusters, 1);
         assert_eq!(r.sockets, 1);
         assert_eq!(r.num_cpus, 4);
 
-        let mut args = string_to_args("cpus=4");
-        let r = parse_smp(&mut args).unwrap();
+        let r = _parse_args("cpus=4");
         assert_eq!(r.cores, 4);
         assert_eq!(r.num_cpus, 4);
 
-        let mut args = string_to_args("cores=4");
-        let r = parse_smp(&mut args).unwrap();
+        let r = _parse_args("cores=4");
         assert_eq!(r.cores, 4);
         assert_eq!(r.num_cpus, 4);
 
-        let mut args = string_to_args("maxcpus=4");
-        let r = parse_smp(&mut args).unwrap();
+        let r = _parse_args("maxcpus=4");
         assert_eq!(r.cores, 4);
         assert_eq!(r.num_cpus, 4);
 
-        let mut args = string_to_args("cores=2,maxcpus=8");
-        let r = parse_smp(&mut args).unwrap();
+        let r = _parse_args("cores=2,maxcpus=8");
         assert_eq!(r.cores, 2);
         assert_eq!(r.sockets, 4);
         assert_eq!(r.num_cpus, 8);
 
-        let mut args = string_to_args("cores=2,sockets=2,maxcpus=16");
-        let r = parse_smp(&mut args).unwrap();
+        let r = _parse_args("cores=2,sockets=2,maxcpus=16");
         assert_eq!(r.cores, 2);
         assert_eq!(r.sockets, 2);
         assert_eq!(r.threads, 4);
         assert_eq!(r.num_cpus, 16);
 
-        let mut args = string_to_args("threads=2,cores=2,sockets=2,clusters=2");
-        let r = parse_smp(&mut args).unwrap();
+        let r = _parse_args("threads=2,cores=2,sockets=2,clusters=2");
         assert_eq!(r.cores, 2);
         assert_eq!(r.sockets, 2);
         assert_eq!(r.threads, 2);
         assert_eq!(r.clusters, 2);
         assert_eq!(r.num_cpus, 16);
+
+        // QEMU supports setting topology with multiple args
+        let mut smp = QemuSmp::default();
+        let mut args = string_to_args("12");
+        assert!(parse_smp(&mut args, &mut smp).is_ok());
+        let r = smp.to_cpu_map().unwrap();
+        assert_eq!(r.cores, 12);
+        assert_eq!(r.sockets, 1);
+        assert_eq!(r.threads, 1);
+        assert_eq!(r.clusters, 1);
+        assert_eq!(r.num_cpus, 12);
+        let mut args = string_to_args("clusters=2,threads=2");
+        assert!(parse_smp(&mut args, &mut smp).is_ok());
+        let r = smp.to_cpu_map().unwrap();
+        assert_eq!(r.cores, 3);
+        assert_eq!(r.sockets, 1);
+        assert_eq!(r.threads, 2);
+        assert_eq!(r.clusters, 2);
+        assert_eq!(r.num_cpus, 12);
     }
 }
