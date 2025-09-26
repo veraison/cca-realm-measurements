@@ -1049,10 +1049,6 @@ pub fn build_params(args: &Args, qemu_args: &QemuArgs) -> Result<RealmConfig> {
         dtb_start = align_up(initrd_start + initrd_size, 2 * MIB);
     }
 
-    if qemu.has_measurement_log {
-        qemu.set_log_location(dtb_start + QEMU_DTB_SIZE, QEMU_LOG_SIZE);
-    }
-
     if use_firmware {
         let Some(filename) = &args.firmware else {
             bail!("need firmware image");
@@ -1060,6 +1056,13 @@ pub fn build_params(args: &Args, qemu_args: &QemuArgs) -> Result<RealmConfig> {
 
         let firmware = VmmBlob::from_file(filename, 0);
         realm.add_rim_blob(firmware)?;
+
+        // With a firmware, the DTB is at the beginning of RAM
+        dtb_start = QEMU_MEM_BASE;
+    }
+
+    if qemu.has_measurement_log {
+        qemu.set_log_location(dtb_start + QEMU_DTB_SIZE, QEMU_LOG_SIZE);
     }
 
     let pc = if use_firmware { 0 } else { QEMU_MEM_BASE };

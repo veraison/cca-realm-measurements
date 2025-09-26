@@ -2,6 +2,7 @@
 use assert_cmd::prelude::*;
 use assert_fs::prelude::*;
 use predicates::prelude::*;
+use std::path::PathBuf;
 use std::process::Command;
 
 fn cmd() -> Command {
@@ -252,6 +253,140 @@ fn qemu_params() {
         .success()
         .stderr("")
         .stdout(predicate::str::contains("RIM: ef4e6f78ea9630f66146b33a405a07b669ef94dd9aca6935d4fd23fea32f98f964241a2f9a9c20c9fcd74e20031c51c4beb8e577873e0348e891ee2d727e2807"));
+}
+
+#[test]
+fn qemu_measurements() {
+    let tmp_dir = assert_fs::TempDir::new().unwrap();
+    let fw_file = tmp_dir.child("firmware");
+    // We need a file with a valid kernel header
+    let kernel_path: PathBuf = [
+        std::env::var("CARGO_MANIFEST_DIR").unwrap().as_str(),
+        "testdata",
+        "linux.bin",
+    ]
+    .iter()
+    .collect();
+    let initrd_file = tmp_dir.child("initrd");
+
+    fw_file.write_binary(b"FW CONTENT").unwrap();
+    initrd_file.write_binary(b"INITRD CONTENT").unwrap();
+
+    let args = [
+        "--num-wps",
+        "6",
+        "--num-bps",
+        "6",
+        "--ipa-bits",
+        "52",
+        "--pmu-num-ctrs",
+        "6",
+        "-f",
+        fw_file.to_str().unwrap(),
+        "-k",
+        &kernel_path.to_string_lossy(),
+        "-i",
+        initrd_file.to_str().unwrap(),
+        "qemu",
+        "-M",
+        "confidential-guest-support=rme0",
+        "-object",
+        "rme-guest,id=rme0,measurement-algorithm=sha256",
+        "-cpu",
+        "host",
+        "-M",
+        "virt",
+        "-enable-kvm",
+        "-smp",
+        "2",
+        "-m",
+        "1G",
+        "-nographic",
+    ];
+
+    cmd()
+        .args(args)
+        .args(["-bios", "firmware"])
+        .assert()
+        .append_context("test", "measure firmware")
+        .success()
+        .stderr("")
+        .stdout(predicate::str::contains(
+            "RIM: cbf533a94009dfa6b83016a89b428d1d910fb3593856bb386d7b2bd07a1bc834",
+        ));
+
+    // With -bios the kernel is passed at runtime via fw_cfg
+    cmd()
+        .args(args)
+        .args(["-bios", "firmware", "-kernel", "Image"])
+        .assert()
+        .append_context("test", "measure firmware with -kernel")
+        .success()
+        .stderr("")
+        .stdout(predicate::str::contains(
+            "RIM: cbf533a94009dfa6b83016a89b428d1d910fb3593856bb386d7b2bd07a1bc834",
+        ));
+
+    // With -bios and -append, the command-line is passed via fw_cfg, but also
+    // in the DTB (hence the different RIM)
+    cmd()
+        .args(args)
+        .args([
+            "-bios",
+            "firmware",
+            "-kernel",
+            "Image",
+            "-append",
+            "root=/dev/vda2",
+        ])
+        .assert()
+        .append_context("test", "measure firmware with -append")
+        .success()
+        .stderr("")
+        .stdout(predicate::str::contains(
+            "RIM: fd3ce1072c3e95cd3a4d1a07729756564f260f9f7e95014418b416673a268b7a",
+        ));
+
+    // No -bios, the kernel gets measured into the RIM
+    cmd()
+        .args(args)
+        .args(["-kernel", "Image"])
+        .assert()
+        .append_context("test", "measure kernel")
+        .success()
+        .stderr("")
+        .stdout(predicate::str::contains(
+            "RIM: e8862e21b8eb6b4bdeeff244dc59d2935c26d92c52d346f06e224fe712267a6",
+        ));
+
+    cmd()
+        .args(args)
+        .args(["-kernel", "Image", "-initrd", "initrd"])
+        .assert()
+        .append_context("test", "measure kernel + initrd")
+        .success()
+        .stderr("")
+        .stdout(predicate::str::contains(
+            "RIM: 9af47a8e4d6ac775e05f8a8893f9e383694688719d1bbb4281ed1c25056e0911",
+        ));
+
+    cmd()
+        .args(args)
+        .args([
+            "-kernel",
+            "Image",
+            "-initrd",
+            "initrd",
+            "-append",
+            "root=/dev/vda2",
+        ])
+        .assert()
+        .append_context("test", "measure kernel + initrd + cmdline")
+        .success()
+        .stderr("")
+        .stdout(predicate::str::contains(
+            "RIM: 22d398e695e776385bc268454587b418dde16e34bc69d9a24fc96abb3050a24e",
+        ));
 }
 
 #[test]
