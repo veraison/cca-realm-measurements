@@ -20,6 +20,26 @@ fn no_param() {
 }
 
 #[test]
+fn error_reports() {
+    cmd()
+        .args([
+            "--num-wps",
+            "6",
+            "--num-bps",
+            "6",
+            "-f",
+            "nonexistent-file",
+            "qemu",
+            "-bios",
+            "FW",
+        ])
+        .assert()
+        .append_context("test", "nonexistent file")
+        .failure()
+        .stderr("ERROR Failed to compute measurements: VMM: file nonexistent-file error: No such file or directory (os error 2)\n");
+}
+
+#[test]
 fn kvmtool_params() {
     cmd()
         .args(["kvmtool", "--realm"])

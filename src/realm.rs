@@ -30,10 +30,10 @@ pub enum RealmError {
     #[error("{0} is not known")]
     Uninitialized(String),
 
-    #[error("RMM")]
+    #[error("RMM: {0}")]
     Rmm(#[from] RmmError),
 
-    #[error("VMM")]
+    #[error("VMM: {0}")]
     Vmm(#[from] VmmError),
 
     #[error("invalid parameter {0}")]

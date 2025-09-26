@@ -16,7 +16,7 @@ pub enum VmmError {
     #[error("file {filename} error: {e}")]
     File { e: std::io::Error, filename: String },
 
-    #[error("I/O error")]
+    #[error("I/O error: {0}")]
     IO(#[from] std::io::Error),
 
     // RealmError already has a VmmError -> RealmError conversion, so this has
@@ -24,10 +24,10 @@ pub enum VmmError {
     #[error("realm: {0}")]
     Realm(String),
 
-    #[error("FDT")]
+    #[error("FDT: {0}")]
     Fdt(#[from] vm_fdt::Error),
 
-    #[error("DTB")]
+    #[error("DTB: {0}")]
     Dtb(#[from] dtb_surgeon::DTBError),
 
     #[error("unimplemented: {0}")]
