@@ -27,6 +27,7 @@ share=false
 vsock=false
 
 gen_dtb=true
+use_pmu=true
 gen_measurements=false
 
 : ${CFG:=gen-run-vmm.cfg}
@@ -71,7 +72,7 @@ CORIM_OUTPUT=
 
 INPUT_RVSTORE="$RVSTORE_DIR/rv.json"
 
-TEMP=$(getopt -o 'hvT' --long 'help,edk2,eventlog,fvp,disk-boot,disk,gen-measurements,serial,no-gen-dtb,no-rme,restricted-mem,kvmtool,cloudhv,tap,verbose,comid-template:,corim-template:,corim-output:,extcon,share::,vsock::' -n 'gen-run-vmm' -- "$@")
+TEMP=$(getopt -o 'hvT' --long 'help,edk2,eventlog,fvp,disk-boot,disk,gen-measurements,serial,no-gen-dtb,no-rme,no-pmu,restricted-mem,kvmtool,cloudhv,tap,verbose,comid-template:,corim-template:,corim-output:,extcon,share::,vsock::' -n 'gen-run-vmm' -- "$@")
 if [ $? -ne 0 ]; then
     exit 1
 fi
@@ -104,6 +105,9 @@ while true; do
         ;;
     '--no-gen-dtb')
         gen_dtb=false
+        ;;
+    '--no-pmu')
+        use_pmu=false
         ;;
     '--restricted-mem')
         use_restricted_mem=true
@@ -313,7 +317,6 @@ if [ "$vmm" = "kvmtool" ]; then
         -c 2 -m $MEM_SIZE
         --virtio-transport pci
         --irqchip=gicv3-its
-        --pmu
         --network mode=user
         #--9p /mnt/shr0,shr0
         --debug
@@ -331,6 +334,9 @@ if [ "$vmm" = "kvmtool" ]; then
     fi
     if $use_restricted_mem; then
         CMD+=(--restricted-mem)
+    fi
+    if $use_pmu; then
+        CMD+=(--pmu)
     fi
 
     if [ -n "${KPARAMS[*]}" ]; then
