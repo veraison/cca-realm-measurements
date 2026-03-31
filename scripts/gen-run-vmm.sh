@@ -18,6 +18,7 @@ use_direct_kernel=true
 use_initrd=true
 use_rme=true
 use_net_tap=false
+use_restricted_mem=false
 host_fvp=false
 verbose=false
 separate_console=false
@@ -26,6 +27,7 @@ share=false
 vsock=false
 
 gen_dtb=true
+use_pmu=true
 gen_measurements=false
 
 : ${CFG:=gen-run-vmm.cfg}
@@ -70,7 +72,7 @@ CORIM_OUTPUT=
 
 INPUT_RVSTORE="$RVSTORE_DIR/rv.json"
 
-TEMP=$(getopt -o 'hvT' --long 'help,edk2,eventlog,fvp,disk-boot,disk,gen-measurements,serial,no-gen-dtb,no-rme,kvmtool,cloudhv,tap,verbose,comid-template:,corim-template:,corim-output:,extcon,share::,vsock::' -n 'gen-run-vmm' -- "$@")
+TEMP=$(getopt -o 'hvT' --long 'help,edk2,eventlog,fvp,disk-boot,disk,gen-measurements,serial,no-gen-dtb,no-rme,no-pmu,restricted-mem,kvmtool,cloudhv,tap,verbose,comid-template:,corim-template:,corim-output:,extcon,share::,vsock::' -n 'gen-run-vmm' -- "$@")
 if [ $? -ne 0 ]; then
     exit 1
 fi
@@ -103,6 +105,12 @@ while true; do
         ;;
     '--no-gen-dtb')
         gen_dtb=false
+        ;;
+    '--no-pmu')
+        use_pmu=false
+        ;;
+    '--restricted-mem')
+        use_restricted_mem=true
         ;;
     '--kvmtool')
         vmm=kvmtool
@@ -294,7 +302,7 @@ if [ "$vmm" = "kvmtool" ]; then
     fi
 
     if $use_rme; then
-        CMD+=(--realm --restricted_mem --sve-max-vl=512)
+        CMD+=(--realm --sve-max-vl=512)
     fi
 
     if $use_edk2; then
@@ -309,7 +317,6 @@ if [ "$vmm" = "kvmtool" ]; then
         -c 2 -m $MEM_SIZE
         --virtio-transport pci
         --irqchip=gicv3-its
-        --pmu
         --network mode=user
         #--9p /mnt/shr0,shr0
         --debug
@@ -324,6 +331,12 @@ if [ "$vmm" = "kvmtool" ]; then
     fi
     if $use_event_log; then
         CMD+=(--measurement-log)
+    fi
+    if $use_restricted_mem; then
+        CMD+=(--restricted-mem)
+    fi
+    if $use_pmu; then
+        CMD+=(--pmu)
     fi
 
     if [ -n "${KPARAMS[*]}" ]; then
