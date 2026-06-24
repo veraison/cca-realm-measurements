@@ -284,9 +284,6 @@ else
     tapaddress=
 fi
 
-# printf "%64s" "I'm a teapot" | base64 -w0
-RPV=ICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIEknbSBhIHRlYXBvdA==
-
 if [ "$vmm" = "kvmtool" ]; then
     : ${OUTPUT_DTB:="$OUTPUT_DTB_DIR/kvmtool-gen.dtb"}
     EDK2="$EDK2_DIR/Build/ArmVirtKvmtool-AARCH64/DEBUG_GCC5/FV/KVMTOOL_EFI.fd"
@@ -347,7 +344,7 @@ elif [ "$vmm" = "cloud-hv" ]; then
     EDK2="$EDK2_DIR/Build/ArmVirtCloudHv-AARCH64/DEBUG_GCC5/FV/QEMU_EFI.fd"
 
     if $use_rme; then
-        CMD+=(--platform "arm_rme=on,measurement_algo=sha512,personalization_value=$RPV")
+        CMD+=(--platform "arm_rme=on")
     fi
 
     if $use_virtconsole; then
@@ -394,7 +391,7 @@ else # QEMU
     fi
 
     if $use_rme; then
-        CMD+=(-M confidential-guest-support=rme0 -object rme-guest,id=rme0,measurement-algorithm=sha512,personalization-value=$RPV,measurement-log=$measurement_log)
+        CMD+=(-M confidential-guest-support=rme0 -object rme-guest,id=rme0,measurement-log=$measurement_log)
     fi
 
     if $use_virtconsole; then
