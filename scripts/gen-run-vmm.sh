@@ -391,7 +391,7 @@ else # QEMU
     fi
 
     if $use_rme; then
-        CMD+=(-M confidential-guest-support=rme0 -object rme-guest,id=rme0,measurement-log=$measurement_log)
+        CMD+=(-M confidential-guest-support=rme0 -object rme-guest,id=rme0)
     fi
 
     if $use_virtconsole; then
