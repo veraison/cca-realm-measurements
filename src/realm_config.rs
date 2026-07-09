@@ -199,6 +199,7 @@ impl RealmConfig {
         let hash_algo = match self.params.hash_algo {
             None => return Err(RealmError::Uninitialized("hash algorithm".to_string())),
             Some(RmiHashAlgorithm::RmiHashSha256) => "sha-256",
+            Some(RmiHashAlgorithm::RmiHashSha384) => "sha-384",
             Some(RmiHashAlgorithm::RmiHashSha512) => "sha-512",
         };
 
