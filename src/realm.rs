@@ -44,6 +44,9 @@ pub enum RealmError {
 
     #[error("invalid VM configuration: {0}")]
     Config(String),
+
+    #[error("error publishing measurements: {0}")]
+    Publish(String),
 }
 type Result<T> = core::result::Result<T, RealmError>;
 
@@ -85,9 +88,15 @@ impl Display for PersonalizationValue {
 }
 
 impl PersonalizationValue {
+    #[allow(dead_code)]
     /// Encode as base64 string
     pub fn to_base64(&self) -> String {
         base64_standard.encode(self.0)
+    }
+
+    /// Get the personalization value bytes
+    pub fn to_bytes(&self) -> &[u8] {
+        &self.0
     }
 
     /// Decode a base64 string into a PersonalizationValue.
@@ -124,12 +133,44 @@ impl Measurements {
     pub fn to_base64_array(&self) -> [String; 5] {
         assert!(self.length == 32 || self.length == 64);
         [
-            base64_standard.encode(&self.rim[..self.length]),
-            base64_standard.encode(&self.rem[0][..self.length]),
-            base64_standard.encode(&self.rem[1][..self.length]),
-            base64_standard.encode(&self.rem[2][..self.length]),
-            base64_standard.encode(&self.rem[3][..self.length]),
+            buf_to_base64_str(&self.rim[..self.length]),
+            buf_to_base64_str(&self.rem[0][..self.length]),
+            buf_to_base64_str(&self.rem[1][..self.length]),
+            buf_to_base64_str(&self.rem[2][..self.length]),
+            buf_to_base64_str(&self.rem[3][..self.length]),
         ]
+    }
+
+    /// Return an array of five reference values as byte slices. The
+    /// values are truncated in function of the hash algorithm.
+    pub fn to_byte_array(&self) -> [&[u8]; 5] {
+        assert!(self.length == 32 || self.length == 64);
+        [
+            &self.rim[..self.length],
+            &self.rem[0][..self.length],
+            &self.rem[1][..self.length],
+            &self.rem[2][..self.length],
+            &self.rem[3][..self.length],
+        ]
+    }
+
+    /// Get RIM bytes. This method returns a slice of length equal to the measurement
+    /// length.
+    pub fn get_rim(&self) -> &[u8] {
+        assert!(self.length == 32 || self.length == 64);
+        &self.rim[..self.length]
+    }
+
+    #[allow(dead_code)]
+    /// Returns REM bytes at index. This method returs slice of length equal to the
+    /// measurement length. If index is larger than 3, an empty slice is returned.
+    pub fn get_rem(&self, index: u8) -> &[u8] {
+        assert!(self.length == 32 || self.length == 64);
+        if index > 3 {
+            &[]
+        } else {
+            &self.rem[index as usize][..self.length]
+        }
     }
 }
 
@@ -211,6 +252,8 @@ pub struct Realm {
     block_sizes: u64,
     /// The RIM and REM measurements.
     pub measurements: Measurements,
+    /// The Realm Personalization Value
+    pub rpv: PersonalizationValue,
 }
 
 impl Realm {
@@ -219,26 +262,23 @@ impl Realm {
         Self::default()
     }
 
-    /// Return a string representation of the current measurements
+    /// Dumps realm measurements to stdout
     ///
     /// # Arguments
-    ///
-    /// * `print_b64`: return a base64 encoded string. Otherwise, return a raw
-    ///   hexadecimal string.
-    pub fn dump_measurement(&self, m: &RmmRealmMeasurement, print_b64: bool) -> String {
-        if print_b64 {
-            base64_standard.encode(m)
+    /// * `print_b64`: print a base64 encoded string. Otherwise return hex string
+    pub fn dump_measurements(&self, print_b64: bool) {
+        let encode_fn = if print_b64 {
+            buf_to_base64_str
         } else {
-            // Dump big-endian hex
-            buf_to_hex_str(m).to_string()
-        }
+            buf_to_hex_str
+        };
+        let keys = ["RIM", "REM0", "REM1", "REM2", "REM3"];
+        std::iter::zip(keys, self.measurements.to_byte_array())
+            .for_each(|(k, v)| println!("{k}: {}", encode_fn(v)));
     }
 
     fn debug_rim(&self) {
-        log::debug!(
-            "RIM: {}",
-            self.dump_measurement(&self.measurements.rim, false)
-        );
+        log::debug!("RIM: {}", buf_to_hex_str(self.measurements.get_rim()));
     }
 
     /// Set the hash algorithm used for all measurements.
@@ -249,6 +289,12 @@ impl Realm {
             RmiHashAlgorithm::RmiHashSha512 => 64,
         };
         self
+    }
+
+    /// Get the Realm Hash algorithm. Returns an error if not set.
+    pub fn get_hash_algo(&self) -> Result<RmiHashAlgorithm> {
+        self.hash_algo
+            .ok_or(RealmError::Uninitialized("hash algorithm".to_string()))
     }
 
     /// Compute the hash of the provided buffer, using the Realm hash algorithm
