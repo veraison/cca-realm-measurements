@@ -391,7 +391,8 @@ else # QEMU
     fi
 
     if $use_rme; then
-        CMD+=(-M confidential-guest-support=rme0 -object rme-guest,id=rme0)
+        CMD+=(-M confidential-guest-support=rme0,memory-backend=ram0
+              -object rme-guest,id=rme0,convert-in-place=on)
     fi
 
     if $use_virtconsole; then
@@ -415,6 +416,7 @@ else # QEMU
 
     CMD+=(
         -cpu host -M virt -enable-kvm -M gic-version=3,its=on
+        -object memory-backend-guest-memfd,id=ram0,size=$MEM_SIZE,share=on
         -smp 2 -m $MEM_SIZE
         -nographic
         #-device virtio-9p-pci,fsdev=shr0,mount_tag=shr0

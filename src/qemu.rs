@@ -438,6 +438,7 @@ fn parse_object(
             }
             "measurement-log" => parse_bool(&mut qemu.has_measurement_log, val)?,
             "id" => (),
+            "convert-in-place" => (),
             _ => bail!("unsupported rme-guest property '{prop}'"),
         }
     }
