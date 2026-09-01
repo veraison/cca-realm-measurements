@@ -152,35 +152,6 @@ pub trait DTBSurgeon {
     }
 }
 
-/// NOP implementation of the DTB surgeon
-#[derive(Debug)]
-pub struct DefaultDTBSurgeon {}
-impl DTBSurgeon for DefaultDTBSurgeon {
-    fn mem(&self) -> (u64, u64) {
-        panic!()
-    }
-
-    /// Base guest-physical address and size of initrd, if enabled.
-    fn initrd(&self) -> Option<(u64, u64)> {
-        None
-    }
-
-    /// Kernel parameters, if any
-    fn bootargs(&self) -> Option<&str> {
-        None
-    }
-
-    fn handle_property(
-        &self,
-        _fdt: &mut FdtWriter,
-        _node_name: &str,
-        _property_name: &str,
-        _property_val: &[u8],
-    ) -> Result<bool> {
-        Ok(false)
-    }
-}
-
 enum Token<'a> {
     BeginNode(String),
     EndNode,

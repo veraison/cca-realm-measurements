@@ -3,8 +3,9 @@ use std::process::ExitCode;
 
 use clap::Parser;
 use std::fs;
+use vm_fdt::FdtWriter;
 
-use cca_realm_measurements::dtb_surgeon::{DTBSurgeon, DefaultDTBSurgeon};
+use cca_realm_measurements::dtb_surgeon::{DTBResult, DTBSurgeon};
 
 #[derive(Debug, Parser)]
 /// Parse a DTB and output it
@@ -18,6 +19,35 @@ struct Args {
     /// Display trace
     #[arg(short)]
     verbose: bool,
+}
+
+/// NOP implementation of the DTB surgeon
+#[derive(Debug)]
+pub struct DefaultDTBSurgeon {}
+impl DTBSurgeon for DefaultDTBSurgeon {
+    fn mem(&self) -> (u64, u64) {
+        panic!()
+    }
+
+    /// Base guest-physical address and size of initrd, if enabled.
+    fn initrd(&self) -> Option<(u64, u64)> {
+        None
+    }
+
+    /// Kernel parameters, if any
+    fn bootargs(&self) -> Option<&str> {
+        None
+    }
+
+    fn handle_property(
+        &self,
+        _fdt: &mut FdtWriter,
+        _node_name: &str,
+        _property_name: &str,
+        _property_val: &[u8],
+    ) -> DTBResult<bool> {
+        Ok(false)
+    }
 }
 
 fn main() -> ExitCode {
