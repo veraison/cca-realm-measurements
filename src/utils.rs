@@ -51,7 +51,7 @@ pub fn sve_vq_to_vl(vq: u8) -> u16 {
 
 /// True if @vl is a valid SVE vector length in bits.
 pub fn sve_vl_is_valid(vl: u16) -> bool {
-    (vl % 128) == 0 && vl >= 128 && vl <= 2048
+    vl.is_multiple_of(128) && vl >= 128 && vl <= 2048
 }
 
 /// Convert SVE vector length in bit to the ZCR encoding.

@@ -75,16 +75,16 @@ impl BlobStorageFile {
     }
 
     fn read(&mut self) -> Result<&[u8]> {
-        if self.map.is_some() {
-            return Ok(&self.map.as_ref().unwrap()[..]);
+        if self.map.is_none() {
+            let file = File::open(&self.name).map_err(|e| VmmError::File {
+                e,
+                filename: self.name.to_string(),
+            })?;
+            // SAFETY: possible UB with concurrent modifications
+            // https://docs.rs/memmap2/latest/memmap2/struct.Mmap.html#safety
+            self.map = Some(unsafe { Mmap::map(&file)? });
         }
-        let file = File::open(&self.name).map_err(|e| VmmError::File {
-            e,
-            filename: self.name.to_string(),
-        })?;
-        // SAFETY: possible UB with concurrent modifications
-        // https://docs.rs/memmap2/latest/memmap2/struct.Mmap.html#safety
-        self.map = Some(unsafe { Mmap::map(&file)? });
+
         Ok(&self.map.as_ref().unwrap()[..])
     }
 }
