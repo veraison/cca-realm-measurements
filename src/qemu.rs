@@ -752,11 +752,9 @@ impl DTBSurgeon for QemuParams {
                 }
             }
             // child of gpio-keys
-            "poweroff" => {
-                if property_name == "gpios" {
-                    fdt.property_array_u32("gpios", &[self.gpio_phandle(), 0x03, 0x00])?;
-                    return Ok(true);
-                }
+            "poweroff" if property_name == "gpios" => {
+                fdt.property_array_u32("gpios", &[self.gpio_phandle(), 0x03, 0x00])?;
+                return Ok(true);
             }
             _ => (),
         }
