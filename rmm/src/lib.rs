@@ -209,7 +209,7 @@ pub struct RmmMeasurementDescriptorData {
     #[serde(serialize_with = "serialize_array")]
     content: RmmRealmMeasurement,
 }
-const RMM_REALM_MEASUREMENT_DESCRIPTOR_DATA_SIZE: usize = 0x100;
+const RMM_MEASUREMENT_DESCRIPTOR_DATA_SIZE: usize = 0x100;
 
 impl RmmMeasurementDescriptorData {
     /// Create a new instance of RmmMeasurementDescriptorData
@@ -222,7 +222,7 @@ impl RmmMeasurementDescriptorData {
         RmmMeasurementDescriptorData {
             desc_type: 0,
             unused1: [0; 7],
-            len: RMM_REALM_MEASUREMENT_DESCRIPTOR_DATA_SIZE as u64,
+            len: RMM_MEASUREMENT_DESCRIPTOR_DATA_SIZE as u64,
             rim: *rim,
             ipa,
             flags: flags.bits(),
@@ -234,7 +234,7 @@ impl RmmMeasurementDescriptorData {
         assert!(self.desc_type == 0);
         let mut bytes = bincode::serialize(self)?;
         assert!(bytes.len() == mem::size_of::<RmmMeasurementDescriptorData>());
-        bytes.resize(RMM_REALM_MEASUREMENT_DESCRIPTOR_DATA_SIZE, 0);
+        bytes.resize(RMM_MEASUREMENT_DESCRIPTOR_DATA_SIZE, 0);
         Ok(bytes)
     }
 }
@@ -251,7 +251,7 @@ pub struct RmmMeasurementDescriptorRec {
     #[serde(serialize_with = "serialize_array")]
     content: RmmRealmMeasurement,
 }
-const RMM_REALM_MEASUREMENT_DESCRIPTOR_REC_SIZE: usize = 0x100;
+const RMM_MEASUREMENT_DESCRIPTOR_REC_SIZE: usize = 0x100;
 
 impl RmmMeasurementDescriptorRec {
     /// Create a new instance of RmmMeasurementDescriptorRec
@@ -262,7 +262,7 @@ impl RmmMeasurementDescriptorRec {
         RmmMeasurementDescriptorRec {
             desc_type: 1,
             unused1: [0; 7],
-            len: RMM_REALM_MEASUREMENT_DESCRIPTOR_REC_SIZE as u64,
+            len: RMM_MEASUREMENT_DESCRIPTOR_REC_SIZE as u64,
             rim: *rim,
             content: *content,
         }
@@ -272,7 +272,7 @@ impl RmmMeasurementDescriptorRec {
         assert!(self.desc_type == 1);
         let mut bytes = bincode::serialize(self)?;
         assert!(bytes.len() == mem::size_of::<RmmMeasurementDescriptorRec>());
-        bytes.resize(RMM_REALM_MEASUREMENT_DESCRIPTOR_REC_SIZE, 0);
+        bytes.resize(RMM_MEASUREMENT_DESCRIPTOR_REC_SIZE, 0);
         Ok(bytes)
     }
 }
