@@ -74,7 +74,7 @@ fn kvmtool_params() {
         .append_context("test", "minimum working kvmtool cmdline")
         .success()
         .stdout(predicate::str::contains(
-            "998dfdf6401d69f73ed88ac53d62d5ea2cfac6320b887ce4599aa8671791d4d",
+            "6f2a414957e67d721f0d22d078b0bb6522d8ad5a83b96df2070f054722fbe798",
         ));
 
     // We accept and ignore these parameters. Not exhaustive.
@@ -99,7 +99,7 @@ fn kvmtool_params() {
         .append_context("test", "ignored params")
         .success()
         .stdout(predicate::str::contains(
-            "998dfdf6401d69f73ed88ac53d62d5ea2cfac6320b887ce4599aa8671791d4d",
+            "6f2a414957e67d721f0d22d078b0bb6522d8ad5a83b96df2070f054722fbe798",
         ));
 }
 
@@ -128,7 +128,7 @@ fn kvmtool_measurements() {
         .append_context("test", "measure firmware")
         .success()
         .stdout(
-            "RIM: cf37146fce0ad50e1be1a04580c1024e5449b430b0dd96b6ef5c9a2b73767bf5
+            "RIM: 512aa8b01d26628b9c1ccd4d15401049af86014a1351f76aa74264d69adce6b6
 REM0: 0000000000000000000000000000000000000000000000000000000000000000
 REM1: 0000000000000000000000000000000000000000000000000000000000000000
 REM2: 0000000000000000000000000000000000000000000000000000000000000000
@@ -155,7 +155,7 @@ REM3: 0000000000000000000000000000000000000000000000000000000000000000
         .append_context("test", "measure firmware (base 64)")
         .success()
         .stdout(
-            "RIM: zzcUb84K1Q4b4aBFgMECTlRJtDCw3Za271yaK3N2e/U=
+            "RIM: USqosB0mYoucHM1NFUAQSa+GAUoTUfdqp0Jk1prc5rY=
 REM0: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
 REM1: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
 REM2: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
@@ -506,50 +506,14 @@ fn qemu_dtb() {
         .failure()
         .stderr(predicate::str::contains("error: unexpected argument"));
 
-    // --dtb or --dtb-template but not both
+    // --dtb-template doesn't exist anymore
     cmd()
-        .args([
-            "--dtb",
-            dtb_file.to_str().unwrap(),
-            "--dtb-template",
-            dtb_file.to_str().unwrap(),
-        ])
+        .args(["--dtb-template", dtb_file.to_str().unwrap()])
         .args(args)
         .assert()
-        .append_context("test", "--dtb incompatible with --dtb-template")
+        .append_context("test", "--dtb-template doesn't exist")
         .failure()
-        .stderr("ERROR Invalid arguments: either --dtb or --dtb-template can be set but not both\n");
-
-    // it's now --dtb-template, which provides a base DTB to patch. Now the
-    // output DTB should describe 8 CPUs.
-    cmd()
-        .args(["--dtb-template", dtb_file.to_str().unwrap(), "--output-dtb", output_dtb_file.to_str().unwrap()])
-        .args(args)
-        .args([
-            "-M",
-            "confidential-guest-support=rme0",
-            "-object",
-            "rme-guest,id=rme0,measurement-algorithm=sha512",
-            "-cpu",
-            "host",
-            "-M",
-            "virt",
-            "-enable-kvm",
-            "-smp",
-            "8",
-            "-m",
-            "1G",
-            "-nographic",
-            "-dtb",
-            "output.dtb",
-            "-bios",
-            "firmware",
-        ])
-        .assert()
-        .append_context("test", "input template dtb")
-        .success()
-        .stderr("")
-        .stdout(predicate::str::contains("RIM: 68308d30762b7aa26f749d512864c0e0ad112e9626b8bf1c5486efe32b94b8d8ce8d736089ebf0850a91fda5422852294b679795202ed429fd8512b20b000728"));
+        .stderr(predicate::str::contains("error: unexpected argument"));
 
     tmp_dir.close().unwrap();
 }
