@@ -142,8 +142,8 @@ pub struct CloudHVArgs {
 struct CloudHVParams {
     num_cpus: usize,
     mem_size: u64,
-    initrd_start: u64,
-    initrd_size: u64,
+    initrd: Option<(u64, u64)>,
+    bootargs: Option<String>,
     serial: bool, // instantiate pl011
 }
 
@@ -180,7 +180,7 @@ fn parse_cpus(arg: &Option<String>, cloudhv: &mut CloudHVParams) -> Result<()> {
         };
 
         match name {
-            "boot" => cloudhv.num_cpus = val.parse().context("--cpus")?,
+            "boot" => cloudhv.set_num_cpus(val.parse().context("--cpus")?),
             _ => log::warn!("ignored --cpus parameter {}", name),
         }
     }
@@ -198,7 +198,9 @@ fn parse_memory(arg: &Option<String>, cloudhv: &mut CloudHVParams) -> Result<()>
         };
 
         match name {
-            "size" => cloudhv.mem_size = parse_memory_size(val).context("--memory")?,
+            "size" => {
+                cloudhv.set_mem_size(parse_memory_size(val).context("--memory")?)?
+            }
             _ => log::warn!("ignored --memory parameter {}", name),
         }
     }
@@ -223,142 +225,158 @@ fn parse_cmdline(
     Ok(())
 }
 
-fn add_dtb(
-    args: &CloudHVArgs,
-    realm: &mut RealmConfig,
-    cloudhv: &CloudHVParams,
-    output: &Option<String>,
-) -> Result<()> {
-    let gic_phandle: u32 = 1;
-    let its_phandle: u32 = 2;
-    let clock_phandle: u32 = 3;
+impl VmmParams for CloudHVParams {
+    fn set_initrd(&mut self, base: GuestAddress, size: u64) {
+        self.initrd = Some((base, size));
+    }
 
-    let initrd = if cloudhv.initrd_size != 0 {
-        Some((cloudhv.initrd_start, cloudhv.initrd_size))
-    } else {
-        None
-    };
+    fn initrd(&self) -> Option<(u64, u64)> {
+        self.initrd
+    }
 
-    let (mut fdt, root_node) = fdt_new(
-        (CLOUDHV_MEM_START, cloudhv.mem_size),
-        cloudhv.num_cpus,
-        gic_phandle,
-        args.cmdline.as_deref(),
-        initrd,
-    )?;
+    fn set_mem_size(&mut self, mem_size: u64) -> VmmResult<()> {
+        self.mem_size = mem_size;
+        Ok(())
+    }
 
-    let gic_redist_size = (cloudhv.num_cpus as u64) * CLOUDHV_GIC_REDIST_SIZE;
-    let gic_redist_base = CLOUDHV_GIC_DIST_BASE - gic_redist_size;
-    let gic_its_base = gic_redist_base - CLOUDHV_GIC_ITS_SIZE;
+    fn mem(&self) -> (u64, u64) {
+        (CLOUDHV_MEM_START, self.mem_size)
+    }
 
-    fdt_add_gic(
-        &mut fdt,
-        &[
-            CLOUDHV_GIC_DIST_BASE,
-            CLOUDHV_GIC_DIST_SIZE,
-            gic_redist_base,
-            gic_redist_size,
-        ],
-        Some([gic_its_base, CLOUDHV_GIC_ITS_SIZE]),
-        gic_phandle,
-        its_phandle,
-    )?;
+    fn set_num_cpus(&mut self, num_cpus: usize) {
+        self.num_cpus = num_cpus;
+    }
 
-    fdt_add_timer(&mut fdt, &[13, 14, 11], FDT_IRQ_LEVEL_HI)?;
-    fdt_add_pmu(&mut fdt, 7)?;
+    fn num_cpus(&self) -> usize {
+        self.num_cpus
+    }
 
-    let clk_node = fdt.begin_node("apb-pclk")?;
-    fdt.property_phandle(clock_phandle)?;
-    fdt.property_string("clock-output-names", "clk24mhz")?;
-    fdt.property_u32("clock-frequency", 24000000)?;
-    fdt.property_u32("#clock-cells", 0)?;
-    fdt.property_string("compatible", "fixed-clock")?;
-    fdt.end_node(clk_node)?;
+    fn pmu(&self) -> bool {
+        true
+    }
 
-    let rtc_node = fdt_begin_node_addr(&mut fdt, "pl031", CLOUDHV_RTC_BASE)?;
-    fdt.property_string("clock-names", "apb_pclk")?;
-    fdt.property_array_u64("reg", &[CLOUDHV_RTC_BASE, CLOUDHV_RTC_SIZE])?;
-    fdt.property_u32("clocks", clock_phandle)?;
-    let interrupts = [FDT_IRQ_SPI, CLOUDHV_SPI_RTC, FDT_IRQ_LEVEL_HI];
-    fdt.property_array_u32("interrupts", &interrupts)?;
-    fdt.property_string_list(
-        "compatible",
-        vec!["arm,pl031".to_string(), "arm,primecell".to_string()],
-    )?;
-    fdt.end_node(rtc_node)?;
+    fn set_its(&mut self, _its: bool) {}
 
-    if cloudhv.serial {
-        let uart_node = fdt_begin_node_addr(&mut fdt, "pl011", CLOUDHV_UART_BASE)?;
-        fdt.property_string("clock-names", "apb_pclk")?;
-        fdt.property_array_u64("reg", &[CLOUDHV_UART_BASE, CLOUDHV_UART_SIZE])?;
-        fdt.property_u32("clocks", clock_phandle)?;
-        fdt.property_array_u32(
-            "interrupts",
-            &[FDT_IRQ_SPI, CLOUDHV_SPI_UART, FDT_IRQ_EDGE_LO_HI],
+    fn set_bootargs(&mut self, bootargs: Option<&str>) {
+        self.bootargs = bootargs.map(|s| s.to_string());
+    }
+
+    fn bootargs(&self) -> Option<&str> {
+        self.bootargs.as_deref()
+    }
+}
+
+impl DTBGenerator for CloudHVParams {
+    fn gen_dtb(&self) -> VmmResult<Vec<u8>> {
+        let gic_phandle: u32 = 1;
+        let its_phandle: u32 = 2;
+        let clock_phandle: u32 = 3;
+
+        let (mut fdt, root_node) = self.create_fdt(gic_phandle)?;
+
+        let gic_redist_size = (self.num_cpus() as u64) * CLOUDHV_GIC_REDIST_SIZE;
+        let gic_redist_base = CLOUDHV_GIC_DIST_BASE - gic_redist_size;
+        let gic_its_base = gic_redist_base - CLOUDHV_GIC_ITS_SIZE;
+
+        self.add_gic_node(
+            &mut fdt,
+            &[
+                CLOUDHV_GIC_DIST_BASE,
+                CLOUDHV_GIC_DIST_SIZE,
+                gic_redist_base,
+                gic_redist_size,
+            ],
+            Some([gic_its_base, CLOUDHV_GIC_ITS_SIZE]),
+            gic_phandle,
+            its_phandle,
         )?;
+
+        self.add_timer_node(&mut fdt, &[13, 14, 11], FDT_IRQ_LEVEL_HI)?;
+        self.add_pmu_node(&mut fdt, 7)?;
+
+        let clk_node = fdt.begin_node("apb-pclk")?;
+        fdt.property_phandle(clock_phandle)?;
+        fdt.property_string("clock-output-names", "clk24mhz")?;
+        fdt.property_u32("clock-frequency", 24000000)?;
+        fdt.property_u32("#clock-cells", 0)?;
+        fdt.property_string("compatible", "fixed-clock")?;
+        fdt.end_node(clk_node)?;
+
+        let rtc_node = fdt_begin_node_addr(&mut fdt, "pl031", CLOUDHV_RTC_BASE)?;
+        fdt.property_string("clock-names", "apb_pclk")?;
+        fdt.property_array_u64("reg", &[CLOUDHV_RTC_BASE, CLOUDHV_RTC_SIZE])?;
+        fdt.property_u32("clocks", clock_phandle)?;
+        let interrupts = [FDT_IRQ_SPI, CLOUDHV_SPI_RTC, FDT_IRQ_LEVEL_HI];
+        fdt.property_array_u32("interrupts", &interrupts)?;
         fdt.property_string_list(
             "compatible",
-            vec!["arm,pl011".to_string(), "arm,primecell".to_string()],
+            vec!["arm,pl031".to_string(), "arm,primecell".to_string()],
         )?;
-        fdt.end_node(uart_node)?;
+        fdt.end_node(rtc_node)?;
+
+        if self.serial {
+            let uart_node = fdt_begin_node_addr(&mut fdt, "pl011", CLOUDHV_UART_BASE)?;
+            fdt.property_string("clock-names", "apb_pclk")?;
+            fdt.property_array_u64("reg", &[CLOUDHV_UART_BASE, CLOUDHV_UART_SIZE])?;
+            fdt.property_u32("clocks", clock_phandle)?;
+            fdt.property_array_u32(
+                "interrupts",
+                &[FDT_IRQ_SPI, CLOUDHV_SPI_UART, FDT_IRQ_EDGE_LO_HI],
+            )?;
+            fdt.property_string_list(
+                "compatible",
+                vec!["arm,pl011".to_string(), "arm,primecell".to_string()],
+            )?;
+            fdt.end_node(uart_node)?;
+        }
+
+        let pcie_node = fdt_begin_node_addr(&mut fdt, "pcie", CLOUDHV_PCI_CFG_BASE)?;
+        // FIXME: Generate interrupt-map. Does CH support intx?
+        //
+        // TODO: more than 8GB RAM moves the PCI high region?
+        let pci_high_base = 0x2_00000000;
+        // FIXME: probably not that.
+        let pci_high_size = 0x3fff_00000000 - pci_high_base;
+        fdt.property_array_u32(
+            "ranges",
+            &[
+                FDT_PCI_RANGE_IOPORT,
+                0,
+                0,
+                0,
+                lo(CLOUDHV_PCI_IOPORT_BASE),
+                0,
+                lo(CLOUDHV_PCI_IOPORT_SIZE),
+                FDT_PCI_RANGE_MMIO,
+                0,
+                lo(CLOUDHV_PCI_MMIO_BASE),
+                0,
+                lo(CLOUDHV_PCI_MMIO_BASE),
+                0,
+                lo(CLOUDHV_PCI_MMIO_SIZE),
+                FDT_PCI_RANGE_MMIO_64BIT,
+                hi(pci_high_base),
+                lo(pci_high_base),
+                hi(pci_high_base),
+                lo(pci_high_base),
+                hi(pci_high_size),
+                lo(pci_high_size),
+            ],
+        )?;
+        fdt.property_array_u64("reg", &[CLOUDHV_PCI_CFG_BASE, CLOUDHV_PCI_CFG_SIZE])?;
+        fdt.property_array_u32("msi-map", &[0, its_phandle, 0, 0x100])?;
+        fdt.property_null("dma-coherent")?;
+        fdt.property_array_u32("bus-range", &[0, 0])?;
+        fdt.property_u32("linux,pci-domain", 0)?;
+        fdt.property_u32("#size-cells", 2)?;
+        fdt.property_u32("#address-cells", 3)?;
+        fdt.property_string("device_type", "pci")?;
+        fdt.property_string("compatible", "pci-host-ecam-generic")?;
+        fdt.end_node(pcie_node)?;
+
+        fdt.end_node(root_node)?;
+        Ok(fdt.finish()?)
     }
-
-    let pcie_node = fdt_begin_node_addr(&mut fdt, "pcie", CLOUDHV_PCI_CFG_BASE)?;
-    // FIXME: Generate interrupt-map. Does CH support intx?
-    //
-    // TODO: more than 8GB RAM moves the PCI high region?
-    let pci_high_base = 0x2_00000000;
-    // FIXME: probably not that.
-    let pci_high_size = 0x3fff_00000000 - pci_high_base;
-    fdt.property_array_u32(
-        "ranges",
-        &[
-            FDT_PCI_RANGE_IOPORT,
-            0,
-            0,
-            0,
-            lo(CLOUDHV_PCI_IOPORT_BASE),
-            0,
-            lo(CLOUDHV_PCI_IOPORT_SIZE),
-            FDT_PCI_RANGE_MMIO,
-            0,
-            lo(CLOUDHV_PCI_MMIO_BASE),
-            0,
-            lo(CLOUDHV_PCI_MMIO_BASE),
-            0,
-            lo(CLOUDHV_PCI_MMIO_SIZE),
-            FDT_PCI_RANGE_MMIO_64BIT,
-            hi(pci_high_base),
-            lo(pci_high_base),
-            hi(pci_high_base),
-            lo(pci_high_base),
-            hi(pci_high_size),
-            lo(pci_high_size),
-        ],
-    )?;
-    fdt.property_array_u64("reg", &[CLOUDHV_PCI_CFG_BASE, CLOUDHV_PCI_CFG_SIZE])?;
-    fdt.property_array_u32("msi-map", &[0, its_phandle, 0, 0x100])?;
-    fdt.property_null("dma-coherent")?;
-    fdt.property_array_u32("bus-range", &[0, 0])?;
-    fdt.property_u32("linux,pci-domain", 0)?;
-    fdt.property_u32("#size-cells", 2)?;
-    fdt.property_u32("#address-cells", 3)?;
-    fdt.property_string("device_type", "pci")?;
-    fdt.property_string("compatible", "pci-host-ecam-generic")?;
-    fdt.end_node(pcie_node)?;
-
-    fdt.end_node(root_node)?;
-
-    let bytes = fdt.finish()?;
-
-    if let Some(filename) = output {
-        write_dtb(filename, &bytes)?;
-    }
-
-    let blob = VmmBlob::from_bytes(bytes, CLOUDHV_DT_BASE);
-    realm.add_rim_blob(blob)?;
-
-    Ok(())
 }
 
 /// Create a [RealmConfig] from the cloud-hypervisor command-line arguments.
@@ -367,8 +385,8 @@ pub fn build_params(args: &Args, cloudhv_args: &CloudHVArgs) -> Result<RealmConf
     let mut cloudhv = CloudHVParams {
         num_cpus: 1,
         mem_size: 512 * MIB,
-        initrd_start: 0,
-        initrd_size: 0,
+        initrd: None,
+        bootargs: None,
         serial: true,
     };
 
@@ -398,14 +416,21 @@ pub fn build_params(args: &Args, cloudhv_args: &CloudHVArgs) -> Result<RealmConf
         let initrd_size = align_up(initrd.len()?, cca_rmm::RMM_GRANULE);
         let initrd_start = CLOUDHV_MEM_START + cloudhv.mem_size - initrd_size;
         initrd.guest_start = initrd_start;
-        cloudhv.initrd_start = initrd_start;
-        cloudhv.initrd_size = initrd.len()?;
+        cloudhv.set_initrd(initrd_start, initrd.len()?);
         realm.add_rim_blob(initrd)?;
     }
 
     realm.add_rec(CLOUDHV_KERNEL_BASE, [CLOUDHV_DT_BASE, 0, 0, 0, 0, 0, 0, 0])?;
 
-    add_dtb(cloudhv_args, &mut realm, &cloudhv, &args.output_dtb)
-        .context("while generating DTB")?;
+    cloudhv.set_bootargs(cloudhv_args.cmdline.as_deref());
+
+    add_dtb(
+        &mut realm,
+        &args.dtb,
+        &args.output_dtb,
+        CLOUDHV_DT_BASE,
+        &cloudhv,
+    )
+    .context("while generating DTB")?;
     Ok(realm)
 }

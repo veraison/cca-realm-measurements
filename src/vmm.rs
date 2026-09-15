@@ -1,10 +1,9 @@
 use flate2::read::GzDecoder;
 use memmap2::Mmap;
-use std::fmt::{self, Debug};
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom, Write};
 
-use crate::dtb_surgeon;
+use crate::fdt::DTBGenerator;
 use crate::realm::RealmConfig;
 
 #[derive(Debug, thiserror::Error)]
@@ -26,12 +25,6 @@ pub enum VmmError {
 
     #[error("FDT: {0}")]
     Fdt(#[from] vm_fdt::Error),
-
-    #[error("DTB: {0}")]
-    Dtb(#[from] dtb_surgeon::DTBError),
-
-    #[error("unimplemented: {0}")]
-    Unimplemented(String),
 
     #[error("{0}")]
     Other(String),
@@ -311,65 +304,70 @@ pub fn write_dtb(output_dtb: &String, bytes: &[u8]) -> Result<()> {
     Ok(())
 }
 
-/// Generate a device tree blob
-pub trait DTBGenerator {
-    /// Generate a DTB
-    fn gen_dtb(&self) -> Result<Vec<u8>>;
+/// Common setters and getters for VMM parameters
+pub trait VmmParams {
     /// Set base and size of the initrd
-    fn set_initrd(&mut self, base: GuestAddress, size: u64);
-    /// Set base and size of the log
-    fn set_log_location(&mut self, base: GuestAddress, size: u64);
+    fn set_initrd(&mut self, _base: GuestAddress, _size: u64) {}
+    /// Base guest-physical address and size of initrd, if enabled.
+    fn initrd(&self) -> Option<(u64, u64)> {
+        None
+    }
     /// Enable or disable PMU
-    fn set_pmu(&mut self, pmu: bool);
+    fn set_pmu(&mut self, _pmu: bool) {}
+    /// Is PMU enabled
+    fn pmu(&self) -> bool {
+        false
+    }
     /// Enable or disable GIC ITS
-    fn set_its(&mut self, its: bool);
+    fn set_its(&mut self, _its: bool) {}
     /// Set kernel parameters
-    fn set_bootargs(&mut self, args: &str);
+    fn set_bootargs(&mut self, _args: Option<&str>) {}
+    /// Kernel parameters, if any
+    fn bootargs(&self) -> Option<&str> {
+        None
+    }
     /// Set number of CPUs
     fn set_num_cpus(&mut self, num_cpus: usize);
+    /// Get number of CPUs
+    fn num_cpus(&self) -> usize;
     /// Set RAM size
     fn set_mem_size(&mut self, mem_size: u64) -> Result<()>;
-
-    /// Add DTB to the realm, and optionally write it to file @output
-    fn add_dtb(
-        &self,
-        input: &Option<String>,
-        output: &Option<String>,
-        base: GuestAddress,
-        realm: &mut RealmConfig,
-    ) -> Result<()> {
-        let dtb = if let Some(filename) = input {
-            std::fs::read(filename).map_err(|e| VmmError::File {
-                e,
-                filename: filename.to_string(),
-            })?
-        } else {
-            self.gen_dtb()?
-        };
-
-        if let Some(filename) = output {
-            write_dtb(filename, &dtb)?;
-        }
-
-        let blob = VmmBlob::from_bytes(dtb, base);
-        realm
-            .add_rim_blob(blob)
-            .map_err(|e| VmmError::Realm(e.to_string()))?;
-        Ok(())
-    }
-
-    /// Set a DTB template that can be modified with a DTBSurgeon. The
-    /// DTBGenerator implementation does not have to implement this. It may only
-    /// support generating a DTB from scratch.
-    fn set_template(&mut self, _template: Vec<u8>) -> Result<()> {
-        Err(VmmError::Unimplemented("DTB surgery".to_string()))
+    /// Base guest-physical address and size of RAM
+    fn mem(&self) -> (u64, u64);
+    /// Set base and size of the event log
+    fn set_log_location(&mut self, _base: GuestAddress, _size: u64) {}
+    /// Get base and size of the event log, if any
+    fn log_location(&self) -> Option<(GuestAddress, u64)> {
+        None
     }
 }
 
-impl Debug for dyn DTBGenerator {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "DTBGenerator")
+/// Add DTB to the realm, and optionally write it to file @output
+pub fn add_dtb(
+    realm: &mut RealmConfig,
+    input: &Option<String>,
+    output: &Option<String>,
+    base: GuestAddress,
+    generator: &impl DTBGenerator,
+) -> Result<()> {
+    let dtb = if let Some(filename) = input {
+        std::fs::read(filename).map_err(|e| VmmError::File {
+            e,
+            filename: filename.to_string(),
+        })?
+    } else {
+        generator.gen_dtb()?
+    };
+
+    if let Some(filename) = output {
+        write_dtb(filename, &dtb)?;
     }
+
+    let blob = VmmBlob::from_bytes(dtb, base);
+    realm
+        .add_rim_blob(blob)
+        .map_err(|e| VmmError::Realm(e.to_string()))?;
+    Ok(())
 }
 
 #[cfg(test)]
