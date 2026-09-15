@@ -33,7 +33,6 @@ anyhow = "1.0.79"
 clap = { version = "4.5.1", features = ["derive"] }
 openssl = "0.10.72"
 toml = "0.8.10"
-vm-fdt = { git = "https://github.com/jpbrucker/vm-fdt.git" }
 serde_json = { version = "1.0.114" }
 base64 = "0.22.1"
 log = "0.4.22"
@@ -45,6 +44,7 @@ fallible-iterator = "0.3.0"
 serde.workspace = true
 thiserror.workspace = true
 flate2 = { version = "1.1.2", default-features = false, features = ["zlib-ng-compat"] }
+vm-fdt = "0.3.0"
 
 [lints.rust]
 missing_debug_implementations = "warn"

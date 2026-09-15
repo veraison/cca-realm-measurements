@@ -35,7 +35,6 @@ allow = [
 unknown-registry = "deny"
 unknown-git = "deny"
 allow-git = [
-    "https://github.com/jpbrucker/vm-fdt.git",
     "https://github.com/jpbrucker/uefi-eventlog-rs.git"
 ]
 

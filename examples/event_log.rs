@@ -1,7 +1,7 @@
 use clap::Parser;
 use std::fs;
 
-use cca_realm_measurements::{DTBTemplates, EventLogParser, MeasurementImages, Realm};
+use cca_realm_measurements::{EventLogParser, MeasurementImages, Realm};
 
 #[derive(Debug, Parser)]
 /// Parse an event log, try to construct the reference values
@@ -23,9 +23,6 @@ fn main() {
     let mut parser = EventLogParser::new();
     if let Some(f) = args.checksums_file {
         parser.images(MeasurementImages::from_checksums(&f).unwrap());
-    }
-    if let Some(f) = args.dtb_list {
-        parser.dtbs(DTBTemplates::from_file_list(&f).unwrap());
     }
 
     let mut realm = Realm::new();

@@ -6,6 +6,5 @@ ignore = [
 
 [sources]
 allow-git = [
-    "https://github.com/jpbrucker/vm-fdt.git",
     "https://github.com/jpbrucker/uefi-eventlog-rs.git",
 ]
