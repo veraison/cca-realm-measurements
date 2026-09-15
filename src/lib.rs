@@ -82,7 +82,7 @@ pub mod realm;
 /// VMM tools
 pub mod vmm;
 
-pub use event_log::{DTBTemplates, EventLogParser, MeasurementImages};
+pub use event_log::{EventLogParser, MeasurementImages};
 pub use realm::Realm;
 
 // mod realm re-exports these
@@ -91,8 +91,6 @@ mod realm_config;
 mod realm_params;
 
 mod command_line;
-/// FDT surgery. Experimental and unstable!
-pub mod dtb_surgeon;
 mod fdt;
 mod utils;
 
