@@ -246,6 +246,7 @@ impl Realm {
         self.hash_algo = Some(algo);
         self.measurements.length = match algo {
             RmiHashAlgorithm::RmiHashSha256 => 32,
+            RmiHashAlgorithm::RmiHashSha384 => 64,
             RmiHashAlgorithm::RmiHashSha512 => 64,
         };
         self
@@ -259,6 +260,12 @@ impl Realm {
                 let h = sha::sha256(data);
                 let mut measurement = [0; RMM_REALM_MEASUREMENT_WIDTH];
                 measurement[..32].copy_from_slice(&h);
+                Ok(measurement)
+            }
+            Some(RmiHashAlgorithm::RmiHashSha384) => {
+                let h = sha::sha384(data);
+                let mut measurement = [0; RMM_REALM_MEASUREMENT_WIDTH];
+                measurement[..48].copy_from_slice(&h);
                 Ok(measurement)
             }
             Some(RmiHashAlgorithm::RmiHashSha512) => Ok(sha::sha512(data)),

@@ -3,6 +3,16 @@
 //! This library provides structure and value definitions from the RMM
 //! specification v1.0-rel0. For the moment it only provides the definitions
 //! needed for Realm Initial Measurement calculation.
+//!
+//! References:
+//! - DEN0137 1.0-rel0  Realm Management Specification
+//!   - B4.3.9.4   RMI_REALM_CREATE initialization of RIM
+//!   - B4.3.12.4  RMI_REC_CREATE extension of RIM
+//!
+//! - DEN0137 2.0-bet3  Realm Management Specification
+//!   - B4.5.43.4  RMI_REC_CREATE extension of RIM
+//!   - B4.5.62.4  RMI_RTT_DATA_MAP_INIT extension of RIM
+//!
 #![warn(missing_docs)]
 use bitflags::bitflags;
 use core::mem;
@@ -17,7 +27,7 @@ pub const RMM_REALM_MEASUREMENT_WIDTH: usize = 64;
 pub type RmmRealmMeasurement = [u8; RMM_REALM_MEASUREMENT_WIDTH];
 
 bitflags! {
-/// Flags provided by the host during Realm creation
+/// In v1.0-rel0, RmiRealmFlags that are measured into the RIM
 #[derive(Default, Debug, Clone, Copy, Serialize, PartialEq, Eq, Hash)]
 pub struct RmiRealmFlags: u64 {
     /// Enable Large Physical Addresses
@@ -30,7 +40,7 @@ pub struct RmiRealmFlags: u64 {
 }
 
 bitflags! {
-/// Flags provided by the Host during REC creation
+/// RmiRecCreateFlags measured into the RIM.
 pub struct RmiRecCreateFlags: u64 {
     /// The REC is run at reset
     const RUNNABLE = 1 << 0;
@@ -62,13 +72,17 @@ pub enum RmmError {
 type Result<T> = core::result::Result<T, RmmError>;
 
 /// Hash algorithm used for measurements
+///
+/// RMM v1.0-rel0 does not support RmiHashSha384.
 #[derive(Copy, Clone, Debug, Deserialize, PartialEq, Default)]
 pub enum RmiHashAlgorithm {
-    /// The SHA-256 algorithm
+    /// SHA-256
     #[default]
     RmiHashSha256 = 0,
-    /// The SHA-512 algorithm
+    /// SHA-512
     RmiHashSha512 = 1,
+    /// SHA-384
+    RmiHashSha384 = 2,
 }
 
 impl TryFrom<u8> for RmiHashAlgorithm {
@@ -77,6 +91,7 @@ impl TryFrom<u8> for RmiHashAlgorithm {
         match algo {
             0 => Ok(RmiHashAlgorithm::RmiHashSha256),
             1 => Ok(RmiHashAlgorithm::RmiHashSha512),
+            2 => Ok(RmiHashAlgorithm::RmiHashSha384),
             _ => Err(RmmError::UnknownHashAlgorithm("{algo}".to_string())),
         }
     }
@@ -88,6 +103,7 @@ impl FromStr for RmiHashAlgorithm {
         match s {
             "sha256" => Ok(RmiHashAlgorithm::RmiHashSha256),
             "sha512" => Ok(RmiHashAlgorithm::RmiHashSha512),
+            "sha384" => Ok(RmiHashAlgorithm::RmiHashSha384),
             _ => Err(RmmError::UnknownHashAlgorithm(String::from(s))),
         }
     }
@@ -106,9 +122,12 @@ fn serialize_array<S: Serializer, const N: usize>(
     ser_tuple.end()
 }
 
-/// RmiRealmParams with only the fields that are measured for the RIM. The rest
-/// is set to zero (DEN0137 1.0-rel0 B4.3.9.4 RMI_REALM_CREATE initialization of
-/// RIM)
+/// In v1.0-rel0, the following RmiRealmParams are measured into the RIM.
+///
+/// In v2.0-bet3, the realm parameters are not part of the RIM. They are
+/// provided to a verifier in the Realm claims, part of the Realm attestation
+/// token.
+///
 #[derive(Clone, Debug, Serialize, PartialEq, Default)]
 #[repr(C, packed)]
 pub struct RmiRealmParams {
@@ -158,8 +177,7 @@ impl RmiRealmParams {
     }
 }
 
-/// RmiRecParams with only the fields that are measured for the RIM. The rest is
-/// set to zero (DEN0137 1.0-rel0 B4.3.12.4 RMI_REC_CREATE extension of RIM)
+/// RmiRecParams that are measured into the RIM. The rest is set to zero.
 #[derive(Clone, Debug, Serialize, PartialEq)]
 #[repr(C, packed)]
 pub struct RmiRecParams {
@@ -195,7 +213,11 @@ impl RmiRecParams {
     }
 }
 
-/// Structure used to calculate the contribution to the RIM of a data granule
+/// RmmMeasurementDescriptorData
+///
+/// RmmMeasurementDescriptorData fields that contribute to the RIM, in RMM
+/// v1.0-rel0 and v2.0-bet3
+///
 #[derive(Clone, Debug, Serialize, PartialEq)]
 #[repr(C, packed)]
 pub struct RmmMeasurementDescriptorData {
@@ -239,7 +261,9 @@ impl RmmMeasurementDescriptorData {
     }
 }
 
-/// Structure used to calculate the contribution to the RIM of a REC
+/// RmmMeasurementDescriptorRec
+///
+/// Structure used to calculate the contribution to the RIM of a REC.
 #[derive(Clone, Debug, Serialize, PartialEq)]
 #[repr(C, packed)]
 pub struct RmmMeasurementDescriptorRec {
@@ -277,7 +301,12 @@ impl RmmMeasurementDescriptorRec {
     }
 }
 
-/// Structure used to calculate the contribution to the RIM of a RIPAS change
+/// RmmMeasurementDescriptorRipas
+///
+/// In v1.0-rel0, structure used to calculate the contribution to the RIM of a
+/// RIPAS change.
+///
+/// In v2.0-bet3, the structure does not exist.
 #[derive(Clone, Debug, Serialize, PartialEq)]
 #[repr(C, packed)]
 pub struct RmmMeasurementDescriptorRipas {
@@ -341,7 +370,11 @@ mod tests {
             RmiHashAlgorithm::try_from(1).unwrap(),
             RmiHashAlgorithm::RmiHashSha512
         );
-        assert!(RmiHashAlgorithm::try_from(2).is_err());
+        assert_eq!(
+            RmiHashAlgorithm::try_from(2).unwrap(),
+            RmiHashAlgorithm::RmiHashSha384
+        );
+        assert!(RmiHashAlgorithm::try_from(3).is_err());
         let h: RmiHashAlgorithm = "sha256".parse().unwrap();
         assert_eq!(h, RmiHashAlgorithm::RmiHashSha256);
         assert_eq!(
@@ -351,6 +384,10 @@ mod tests {
         assert_eq!(
             "sha512".parse::<RmiHashAlgorithm>().unwrap(),
             RmiHashAlgorithm::RmiHashSha512
+        );
+        assert_eq!(
+            "sha384".parse::<RmiHashAlgorithm>().unwrap(),
+            RmiHashAlgorithm::RmiHashSha384
         );
         assert!("hello".parse::<RmiHashAlgorithm>().is_err());
     }
