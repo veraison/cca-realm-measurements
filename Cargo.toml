@@ -39,7 +39,7 @@ log = "0.4.22"
 stderrlog = "0.6.0"
 byteorder = "1.5.0"
 memmap2 = "0.9.5"
-uefi-eventlog = { git = "https://github.com/jpbrucker/uefi-eventlog-rs.git" }
+uefi-eventlog = { version = "0.3.1", path = "uefi-eventlog/" }
 fallible-iterator = "0.3.0"
 serde.workspace = true
 thiserror.workspace = true

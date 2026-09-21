@@ -2,7 +2,7 @@
 name = "uefi-eventlog"
 version = "0.3.1"
 authors = ["Patrick Uiterwijk <patrick@puiterwijk.org>"]
-edition = "2018"
+edition = "2021"
 license = "MIT"
 homepage = "https://github.com/puiterwijk/uefi-eventlog-rs"
 description = "UEFI Event Log parser"

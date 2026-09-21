@@ -1098,11 +1098,11 @@ dependencies = [
 [[package]]
 name = "uefi-eventlog"
 version = "0.3.1"
-source = "git+https://github.com/jpbrucker/uefi-eventlog-rs.git#9389934636645a4b4fe05a0098e6bec820c4a58c"
 dependencies = [
  "base64 0.13.1",
  "byteorder",
  "fallible-iterator",
+ "hex",
  "log",
  "num-derive",
  "num-traits",
