@@ -1,6 +1,5 @@
 use byteorder::{ByteOrder, LittleEndian};
-use num_derive::FromPrimitive;
-use num_traits::FromPrimitive;
+use num_enum::TryFromPrimitive;
 use serde::Serialize;
 use std::{collections::HashMap, convert::TryInto};
 use thiserror::Error;
@@ -63,7 +62,7 @@ pub enum EndOfPathType {
     Instance,
 }
 
-#[derive(Debug, Serialize, FromPrimitive)]
+#[derive(Debug, Serialize, TryFromPrimitive)]
 #[serde(rename_all = "lowercase")]
 #[repr(u8)]
 pub enum DevicePathInfoHardDrivePartitionFormat {
@@ -71,7 +70,7 @@ pub enum DevicePathInfoHardDrivePartitionFormat {
     Gpt = 0x02,
 }
 
-#[derive(Debug, Serialize, FromPrimitive)]
+#[derive(Debug, Serialize, TryFromPrimitive)]
 #[serde(rename_all = "lowercase")]
 #[repr(u8)]
 pub enum DevicePathInfoHardDriveSignatureType {
@@ -185,13 +184,14 @@ impl DevicePathInfo {
                     return Err(EventParseError::TooShort);
                 }
                 let partition_format =
-                    match DevicePathInfoHardDrivePartitionFormat::from_u8(data[36]) {
-                        None => return Err(EventParseError::InvalidValue),
-                        Some(v) => v,
+                    match DevicePathInfoHardDrivePartitionFormat::try_from(data[36]) {
+                        Err(_) => return Err(EventParseError::InvalidValue),
+                        Ok(v) => v,
                     };
-                let signature_type = match DevicePathInfoHardDriveSignatureType::from_u8(data[37]) {
-                    None => return Err(EventParseError::InvalidValue),
-                    Some(v) => v,
+                let signature_type = match DevicePathInfoHardDriveSignatureType::try_from(data[37])
+                {
+                    Err(_) => return Err(EventParseError::InvalidValue),
+                    Ok(v) => v,
                 };
                 Ok(DevicePathInfo::HardDrive {
                     partition_number: LittleEndian::read_u32(&data[0..4]),

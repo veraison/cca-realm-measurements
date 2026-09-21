@@ -3,8 +3,7 @@ use std::io::Read;
 use byteorder::{LittleEndian, ReadBytesExt};
 use fallible_iterator::FallibleIterator;
 use log::{info, trace};
-use num_derive::FromPrimitive;
-use num_traits::FromPrimitive;
+use num_enum::{FromPrimitive, IntoPrimitive};
 use openssl::{hash::hash, memcmp};
 use serde::Serialize;
 use thiserror::Error;
@@ -56,10 +55,10 @@ enum LogType {
 }
 
 const EFI_EVENT_BASE: u32 = 0x80000000;
-#[derive(Debug, PartialEq, FromPrimitive, Copy, Clone)]
+#[derive(Debug, PartialEq, Copy, Clone, Serialize, IntoPrimitive, FromPrimitive)]
 #[repr(u32)]
 #[allow(clippy::upper_case_acronyms)]
-enum KnownEventType {
+pub enum EventType {
     // TCG PC Client Platform Firmware Profile Version 1.06 revision 52
     // Table 27 Events
     PrebootCert = 0x0,
@@ -102,168 +101,9 @@ enum KnownEventType {
     EFISpdmFirmwareConfig = EFI_EVENT_BASE + 0xE2,
     EFISpdmDevicePolicy = EFI_EVENT_BASE + 0xE3,
     EFISpdmDeviceAuthority = EFI_EVENT_BASE + 0xE4,
-}
 
-#[derive(Debug, PartialEq, Copy, Clone, Serialize)]
-#[serde(rename_all = "lowercase")]
-#[non_exhaustive]
-pub enum EventType {
-    // TCG PC Client Platform Firmware Profile Version 1.06 revision 52
-    // Table 27 Events
-    PrebootCert,
-    PostCode,
-    Unused,
-    NoAction,
-    Separator,
-    Action,
-    EventTag,
-    CrtmContents,
-    CrtmVersion,
-    CpuMicrocode,
-    PlatformConfigFlags,
-    TableOfDevices,
-    CompactHash,
-    IPL,
-    IPLPartitionData,
-    NonhostCode,
-    NonhostConfig,
-    NonhostInfo,
-    OmitbootDeviceEvents,
-    PostCode2,
-
-    EFIVariableDriverConfig,
-    EFIVariableBoot,
-    EFIBootServicesApplication,
-    EFIBootServicesDriver,
-    EFIRuntimeServicesDriver,
-    EFIGptEvent,
-    EFIAction,
-    EFIPlatformFirmwareBlob,
-    EFIHandoffTables,
-    EFIPlatformFirmwareBlob2,
-    EFIHandoffTables2,
-    EFIVariableBoot2,
-    EFIGptEvent2,
-    EFIHcrtmEvent,
-    EFIVariableAuthority,
-    EFISpdmFirmwareBlob,
-    EFISpdmFirmwareConfig,
-    EFISpdmDevicePolicy,
-    EFISpdmDeviceAuthority,
-
-    // Others
-    Unknown(u32),
-}
-
-impl From<u32> for EventType {
-    fn from(raw: u32) -> Self {
-        match KnownEventType::from_u32(raw) {
-            Some(val) => val.into(),
-            None => EventType::Unknown(raw),
-        }
-    }
-}
-
-impl From<EventType> for u32 {
-    fn from(et: EventType) -> Self {
-        match et {
-            EventType::Unknown(v) => v,
-            _ => et.to_known().unwrap() as u32,
-        }
-    }
-}
-
-impl EventType {
-    fn to_known(self) -> Option<KnownEventType> {
-        Some(match self {
-            EventType::PrebootCert => KnownEventType::PrebootCert,
-            EventType::PostCode => KnownEventType::PostCode,
-            EventType::Unused => KnownEventType::Unused,
-            EventType::NoAction => KnownEventType::NoAction,
-            EventType::Separator => KnownEventType::Separator,
-            EventType::Action => KnownEventType::Action,
-            EventType::EventTag => KnownEventType::EventTag,
-            EventType::CrtmContents => KnownEventType::CrtmContents,
-            EventType::CrtmVersion => KnownEventType::CrtmVersion,
-            EventType::CpuMicrocode => KnownEventType::CpuMicrocode,
-            EventType::PlatformConfigFlags => KnownEventType::PlatformConfigFlags,
-            EventType::TableOfDevices => KnownEventType::TableOfDevices,
-            EventType::CompactHash => KnownEventType::CompactHash,
-            EventType::IPL => KnownEventType::IPL,
-            EventType::IPLPartitionData => KnownEventType::IPLPartitionData,
-            EventType::NonhostCode => KnownEventType::NonhostCode,
-            EventType::NonhostConfig => KnownEventType::NonhostConfig,
-            EventType::NonhostInfo => KnownEventType::NonhostInfo,
-            EventType::OmitbootDeviceEvents => KnownEventType::OmitbootDeviceEvents,
-            EventType::PostCode2 => KnownEventType::PostCode2,
-            EventType::EFIVariableDriverConfig => KnownEventType::EFIVariableDriverConfig,
-            EventType::EFIVariableBoot => KnownEventType::EFIVariableBoot,
-            EventType::EFIBootServicesApplication => KnownEventType::EFIBootServicesApplication,
-            EventType::EFIBootServicesDriver => KnownEventType::EFIBootServicesDriver,
-            EventType::EFIRuntimeServicesDriver => KnownEventType::EFIRuntimeServicesDriver,
-            EventType::EFIGptEvent => KnownEventType::EFIGptEvent,
-            EventType::EFIAction => KnownEventType::EFIAction,
-            EventType::EFIPlatformFirmwareBlob => KnownEventType::EFIPlatformFirmwareBlob,
-            EventType::EFIHandoffTables => KnownEventType::EFIHandoffTables,
-            EventType::EFIPlatformFirmwareBlob2 => KnownEventType::EFIPlatformFirmwareBlob2,
-            EventType::EFIHandoffTables2 => KnownEventType::EFIHandoffTables2,
-            EventType::EFIVariableBoot2 => KnownEventType::EFIVariableBoot2,
-            EventType::EFIGptEvent2 => KnownEventType::EFIGptEvent2,
-            EventType::EFIHcrtmEvent => KnownEventType::EFIHcrtmEvent,
-            EventType::EFIVariableAuthority => KnownEventType::EFIVariableAuthority,
-            EventType::EFISpdmFirmwareBlob => KnownEventType::EFISpdmFirmwareBlob,
-            EventType::EFISpdmFirmwareConfig => KnownEventType::EFISpdmFirmwareConfig,
-            EventType::EFISpdmDevicePolicy => KnownEventType::EFISpdmDevicePolicy,
-            EventType::EFISpdmDeviceAuthority => KnownEventType::EFISpdmDeviceAuthority,
-            EventType::Unknown(_) => return None,
-        })
-    }
-}
-
-impl From<KnownEventType> for EventType {
-    fn from(ket: KnownEventType) -> Self {
-        match ket {
-            KnownEventType::PrebootCert => EventType::PrebootCert,
-            KnownEventType::PostCode => EventType::PostCode,
-            KnownEventType::Unused => EventType::Unused,
-            KnownEventType::NoAction => EventType::NoAction,
-            KnownEventType::Separator => EventType::Separator,
-            KnownEventType::Action => EventType::Action,
-            KnownEventType::EventTag => EventType::EventTag,
-            KnownEventType::CrtmContents => EventType::CrtmContents,
-            KnownEventType::CrtmVersion => EventType::CrtmVersion,
-            KnownEventType::CpuMicrocode => EventType::CpuMicrocode,
-            KnownEventType::PlatformConfigFlags => EventType::PlatformConfigFlags,
-            KnownEventType::TableOfDevices => EventType::TableOfDevices,
-            KnownEventType::CompactHash => EventType::CompactHash,
-            KnownEventType::IPL => EventType::IPL,
-            KnownEventType::IPLPartitionData => EventType::IPLPartitionData,
-            KnownEventType::NonhostCode => EventType::NonhostCode,
-            KnownEventType::NonhostConfig => EventType::NonhostConfig,
-            KnownEventType::NonhostInfo => EventType::NonhostInfo,
-            KnownEventType::OmitbootDeviceEvents => EventType::OmitbootDeviceEvents,
-            KnownEventType::PostCode2 => EventType::PostCode2,
-            KnownEventType::EFIVariableDriverConfig => EventType::EFIVariableDriverConfig,
-            KnownEventType::EFIVariableBoot => EventType::EFIVariableBoot,
-            KnownEventType::EFIBootServicesApplication => EventType::EFIBootServicesApplication,
-            KnownEventType::EFIBootServicesDriver => EventType::EFIBootServicesDriver,
-            KnownEventType::EFIRuntimeServicesDriver => EventType::EFIRuntimeServicesDriver,
-            KnownEventType::EFIGptEvent => EventType::EFIGptEvent,
-            KnownEventType::EFIAction => EventType::EFIAction,
-            KnownEventType::EFIPlatformFirmwareBlob => EventType::EFIPlatformFirmwareBlob,
-            KnownEventType::EFIHandoffTables => EventType::EFIHandoffTables,
-            KnownEventType::EFIPlatformFirmwareBlob2 => EventType::EFIPlatformFirmwareBlob2,
-            KnownEventType::EFIHandoffTables2 => EventType::EFIHandoffTables2,
-            KnownEventType::EFIVariableBoot2 => EventType::EFIVariableBoot2,
-            KnownEventType::EFIGptEvent2 => EventType::EFIGptEvent2,
-            KnownEventType::EFIHcrtmEvent => EventType::EFIHcrtmEvent,
-            KnownEventType::EFIVariableAuthority => EventType::EFIVariableAuthority,
-            KnownEventType::EFISpdmFirmwareBlob => EventType::EFISpdmFirmwareBlob,
-            KnownEventType::EFISpdmFirmwareConfig => EventType::EFISpdmFirmwareConfig,
-            KnownEventType::EFISpdmDevicePolicy => EventType::EFISpdmDevicePolicy,
-            KnownEventType::EFISpdmDeviceAuthority => EventType::EFISpdmDeviceAuthority,
-        }
-    }
+    #[default]
+    Unknown,
 }
 
 #[derive(Debug, Serialize)]
@@ -312,7 +152,7 @@ impl Event {
         let data = std::str::from_utf8(&self.data)?;
         match data.find(": ") {
             None => Ok(data.as_bytes()),
-            Some(pos) => Ok(data[(pos + 2)..data.len() - 1].as_bytes()),
+            Some(pos) => Ok(&data.as_bytes()[(pos + 2)..data.len()]),
         }
     }
 
@@ -359,12 +199,14 @@ impl Event {
                 match dig.verify(data_to_confirm) {
                     Ok(()) => {}
                     Err(_) => {
-                        self.digest_verification_status = DigestVerificationStatus::Invalid;
+                        self.digest_verification_status =
+                            DigestVerificationStatus::Invalid;
                         break;
                     }
                 }
             }
-            if let DigestVerificationStatus::Unattempted = self.digest_verification_status {
+            if let DigestVerificationStatus::Unattempted = self.digest_verification_status
+            {
                 self.digest_verification_status = DigestVerificationStatus::Verified;
             }
         }
@@ -475,7 +317,8 @@ impl<R: Read> Parser<'_, R> {
         self.reader.read_exact(&mut eventbuf)?;
 
         // Possibly parse
-        let parsed_data = parsed::ParsedEventData::parse(event_type, &eventbuf, self.settings);
+        let parsed_data =
+            parsed::ParsedEventData::parse(event_type, &eventbuf, self.settings);
         let parsed_data = invert_opt_res(parsed_data);
 
         // Build up event structure
@@ -506,7 +349,9 @@ impl<R: Read> Parser<'_, R> {
         let mut digest_count = self.reader.read_u32::<LittleEndian>()?;
 
         let log_info = self.log_info.as_ref().unwrap();
-        if event_type == EventType::NoAction && digest_count as usize == log_info.algo_sizes.len() {
+        if event_type == EventType::NoAction
+            && digest_count as usize == log_info.algo_sizes.len()
+        {
             // For EV_NO_ACTION: "The digests field MUST contain all 0x00’s for
             // each allocated Hash algorithm." Sum all the known digest
             // sizes, and skip the field.
@@ -550,7 +395,8 @@ impl<R: Read> Parser<'_, R> {
         );
 
         // Possibly parse
-        let parsed_data = parsed::ParsedEventData::parse(event_type, &eventbuf, self.settings);
+        let parsed_data =
+            parsed::ParsedEventData::parse(event_type, &eventbuf, self.settings);
         let parsed_data = invert_opt_res(parsed_data);
 
         // Build up Event structure
@@ -587,7 +433,9 @@ impl<R: Read> FallibleIterator for Parser<'_, R> {
                 let spec_id = parsed::EfiSpecId::parse(&firstevent.data)?;
                 trace!("Parsed first event: {:?}", spec_id);
                 if spec_id.uintn_size != 2 {
-                    return Err(Error::EventParse(parsed::EventParseError::UnsupportedLog));
+                    return Err(Error::EventParse(
+                        parsed::EventParseError::UnsupportedLog,
+                    ));
                 }
                 self.log_info = Some(spec_id);
                 self.logtype = Some(LogType::Event2);
