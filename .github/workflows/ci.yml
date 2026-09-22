@@ -1,16 +1,12 @@
 name: ci
 
-on:
-  push:
-    branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
-
+on: [push, pull_request]
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
   build:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v5
@@ -26,6 +22,7 @@ jobs:
 # Recommended pipeline if using advisories, to avoid sudden breakages
 # From: https://github.com/EmbarkStudios/cargo-deny-action
   cargo-deny:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
     runs-on: ubuntu-latest
     strategy:
       matrix:
