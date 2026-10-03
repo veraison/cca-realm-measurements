@@ -1,0 +1,11 @@
+# Repo specific changes to the deny.toml
+[advisories]
+ignore = [
+    { id = "RUSTSEC-2025-0141", reason = "bincode is unmaintained, direct dependency of cca-rmm until it is replaced" },
+]
+
+[sources]
+allow-git = [
+    "https://github.com/jpbrucker/vm-fdt.git",
+    "https://github.com/jpbrucker/uefi-eventlog-rs.git",
+]

@@ -50,6 +50,9 @@ flate2 = { version = "1.1.2", default-features = false, features = ["zlib-ng-com
 missing_debug_implementations = "warn"
 
 [lints.clippy]
+all = { level = "deny", priority = -1 }
+cargo = { level = "deny", priority = -1 }
+multiple_crate_versions = "allow"
 # Suggestions are less readable
 manual_range_contains = "allow"
 
