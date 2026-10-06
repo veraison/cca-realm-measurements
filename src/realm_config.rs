@@ -4,21 +4,15 @@
 ///
 use std::collections::BTreeMap;
 use std::fs;
-use std::fs::File;
-use std::io::Write;
-
-use base64::{engine::general_purpose::STANDARD as base64_standard, Engine as _};
 
 use crate::command_line::Args;
 use crate::realm::*;
 use crate::realm_params::RealmParams;
 use crate::utils::*;
 use crate::vmm::{GuestAddress, VmmBlob};
-use cca_rmm::{
-    RmiHashAlgorithm, RmiRecCreateFlags, RmiRecParams, RmmRealmMeasurement, RMM_GRANULE,
-};
+use cca_rmm::{RmiHashAlgorithm, RmiRecCreateFlags, RmiRecParams, RMM_GRANULE};
 
-use crate::realm_comid::RealmEndorsementsComid;
+use crate::realm_comid::publish_comid;
 
 type Result<T> = core::result::Result<T, RealmError>;
 
@@ -45,8 +39,12 @@ pub struct RealmConfig {
     /// Realm parameters.
     pub params: RealmParams,
 
+    // path to CoMID template
     endorsements_template: Option<String>,
+    // path to output file
     endorsements_output: Option<String>,
+    // whether to serialize output as JSON. Default is CBOR
+    serialize_json: bool,
 }
 
 impl RealmConfig {
@@ -70,6 +68,7 @@ impl RealmConfig {
         config
             .endorsements_output
             .clone_from(&args.endorsements_output);
+        config.serialize_json = args.serialize_json;
 
         Ok(config)
     }
@@ -175,74 +174,28 @@ impl RealmConfig {
             realm.rim_data_create_unmeasured(*addr, *size)?;
         }
 
+        realm.rpv = self.personalization_value.clone();
+
         Ok(realm)
     }
 
-    /// Create a JSON file containing realm endorsements in the CoMID format
+    /// Save realm endorsements to file as CoMID in either CBOR or JSON format.
     fn publish_endorsements(&self, realm: &Realm) -> Result<()> {
-        let mut endorsements: RealmEndorsementsComid = if let Some(filename) =
-            &self.endorsements_template
-        {
-            let content = fs::read_to_string(filename).map_err(|e| RealmError::File {
-                filename: filename.to_string(),
-                e,
-            })?;
-            serde_json::from_str(&content).map_err(|e| {
-                RealmError::Config(format!("cannot parse {filename}: {e}"))
-            })?
+        if let Some(ref output_filename) = self.endorsements_output {
+            publish_comid(
+                realm,
+                output_filename,
+                self.endorsements_template.as_ref(),
+                self.serialize_json,
+            )
+            .map_err(|e| RealmError::Publish(e.to_string()))
         } else {
-            RealmEndorsementsComid::new()
-        };
-
-        endorsements.init_refval();
-
-        let hash_algo = match self.params.hash_algo {
-            None => return Err(RealmError::Uninitialized("hash algorithm".to_string())),
-            Some(RmiHashAlgorithm::RmiHashSha256) => "sha-256",
-            Some(RmiHashAlgorithm::RmiHashSha512) => "sha-512",
-        };
-
-        fn encode_rm(algo: &str, rm: RmmRealmMeasurement) -> String {
-            algo.to_owned() + ";" + &base64_standard.encode(rm)
+            Ok(())
         }
-
-        let m = &mut endorsements.triples.reference_values[0].measurements[0].value;
-        m.raw_value.vtype = "bytes".to_string();
-        m.raw_value.value = self.personalization_value.to_base64();
-        m.integrity_registers.rim.key_type = "text".to_string();
-        m.integrity_registers.rem0.key_type = "text".to_string();
-        m.integrity_registers.rem1.key_type = "text".to_string();
-        m.integrity_registers.rem2.key_type = "text".to_string();
-        m.integrity_registers.rem3.key_type = "text".to_string();
-        m.integrity_registers.rim.value =
-            vec![encode_rm(hash_algo, realm.measurements.rim)];
-        m.integrity_registers.rem0.value =
-            vec![encode_rm(hash_algo, realm.measurements.rem[0])];
-        m.integrity_registers.rem1.value =
-            vec![encode_rm(hash_algo, realm.measurements.rem[1])];
-        m.integrity_registers.rem2.value =
-            vec![encode_rm(hash_algo, realm.measurements.rem[2])];
-        m.integrity_registers.rem3.value =
-            vec![encode_rm(hash_algo, realm.measurements.rem[3])];
-
-        let json_output = serde_json::to_string_pretty(&endorsements).map_err(|e| {
-            RealmError::Config(format!("cannot encode endorsements: {e}"))
-        })?;
-        if let Some(filename) = &self.endorsements_output {
-            let mut file = File::create(filename).map_err(|e| RealmError::File {
-                filename: filename.to_string(),
-                e,
-            })?;
-            write!(file, "{}", json_output).map_err(|e| RealmError::File {
-                filename: filename.to_string(),
-                e,
-            })?;
-        }
-        Ok(())
     }
 
     /// Compute Realm Initial Measurement (RIM) and Realm Extensible
-    /// Measurements (REM) of the VM. Display or export them.
+    /// Measurements (REM) of the VM. Display and optionally export them.
     pub fn compute_measurements(&mut self) -> Result<()> {
         let mut realm = self.compute_rim()?;
 
@@ -252,20 +205,8 @@ impl RealmConfig {
             realm.rem_extend(*index, &hash)?;
         }
 
-        if self.endorsements_output.is_none() {
-            println!(
-                "RIM: {}",
-                realm.dump_measurement(&realm.measurements.rim, self.print_b64)
-            );
-            for i in 0..4 {
-                println!(
-                    "REM{i}: {}",
-                    realm.dump_measurement(&realm.measurements.rem[i], self.print_b64)
-                );
-            }
-        } else {
-            self.publish_endorsements(&realm)?;
-        }
+        realm.dump_measurements(self.print_b64);
+        self.publish_endorsements(&realm)?;
 
         Ok(())
     }

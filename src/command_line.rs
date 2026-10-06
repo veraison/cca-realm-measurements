@@ -65,13 +65,17 @@ pub struct Args {
     #[arg(short, long, verbatim_doc_comment, value_name = "file")]
     pub config: Vec<String>,
 
-    /// Input file containing CoMID endorsements in JSON
+    /// Input file containing CoMID endorsements in JSON or CBOR
     #[arg(long, value_name = "file")]
     pub endorsements_template: Option<String>,
 
-    /// Output file containing CoMID endorsements in JSON
+    /// Output file containing CoMID endorsements in JSON or CBOR
     #[arg(long, value_name = "file")]
     pub endorsements_output: Option<String>,
+
+    /// Output endorsements in JSON. If this flag is not set, the CoMID is serialized as CBOR
+    #[arg(long, default_value_t = false)]
+    pub serialize_json: bool,
 
     #[command(flatten)]
     pub host: RealmParams,
