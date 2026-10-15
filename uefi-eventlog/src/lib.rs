@@ -503,7 +503,19 @@ impl<R: Read> Parser<'_, R> {
         let event_type = EventType::from(event_type);
 
         // Digests
-        let digest_count = self.reader.read_u32::<LittleEndian>()?;
+        let mut digest_count = self.reader.read_u32::<LittleEndian>()?;
+
+        let log_info = self.log_info.as_ref().unwrap();
+        if event_type == EventType::NoAction && digest_count as usize == log_info.algo_sizes.len() {
+            // For EV_NO_ACTION: "The digests field MUST contain all 0x00’s for
+            // each allocated Hash algorithm." Sum all the known digest
+            // sizes, and skip the field.
+            let algo_sizes = log_info.algo_sizes.values().map(|v| 2 + *v as usize).sum();
+            let mut digbuf = zeroed_vec(algo_sizes);
+            self.reader.read_exact(&mut digbuf)?;
+            digest_count = 0;
+        };
+
         let mut digests = Vec::with_capacity(digest_count as usize);
         for _ in 0..digest_count {
             let raw_algo = self.reader.read_u16::<LittleEndian>()?;
@@ -511,7 +523,6 @@ impl<R: Read> Parser<'_, R> {
                 None => return Err(Error::UnsupportedDigestMethod(raw_algo)),
                 Some(v) => v,
             };
-            let log_info = self.log_info.as_ref().unwrap();
             let algo_size = match log_info.algo_sizes.get(&raw_algo) {
                 None => return Err(Error::UnsupportedDigestMethod(raw_algo)),
                 Some(v) => v,
