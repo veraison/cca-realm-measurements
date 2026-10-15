@@ -274,7 +274,8 @@ pub struct Digest {
 }
 
 impl Digest {
-    fn verify(&self, data: &[u8]) -> Result<(), Error> {
+    /// hash the data using the digest's method, and check that they match.
+    pub fn verify(&self, data: &[u8]) -> Result<(), Error> {
         let computed = hash(self.method.openssl_md(), data)?;
 
         if memcmp::eq(&self.digest, &computed) {
