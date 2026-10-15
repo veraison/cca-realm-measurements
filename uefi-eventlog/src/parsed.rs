@@ -388,6 +388,11 @@ pub enum ParsedEventData {
         base: u64,
         length: u64,
     },
+    FirmwareBlobLocation2 {
+        description: String,
+        base: u64,
+        length: u64,
+    },
     Text(String),
     EfiVariable(EfiVariableData),
     ImageLoadEvent {
@@ -479,6 +484,28 @@ impl ParsedEventData {
         Ok(ParsedEventData::FirmwareBlobLocation { base, length })
     }
 
+    fn parse_efi_firmware_blob2(data: &[u8]) -> Result<ParsedEventData, EventParseError> {
+        if data.is_empty() {
+            return Err(EventParseError::TooShort);
+        }
+        let desc_len = data[0] as usize;
+        if data.len() != 1 + desc_len + 16 {
+            return Err(EventParseError::TooShort);
+        }
+        let off = 1 + desc_len;
+        // "The string SHALL be encoded in printable, 8-bit ASCII in the
+        // BlobDescription field and SHALL NOT be NUL Terminated."
+        let description =
+            String::from_utf8(data[1..off].to_vec()).map_err(|_| EventParseError::TextDecoding)?;
+        let base = LittleEndian::read_u64(&data[off..off + 8]);
+        let length = LittleEndian::read_u64(&data[off + 8..off + 16]);
+        Ok(ParsedEventData::FirmwareBlobLocation2 {
+            description,
+            base,
+            length,
+        })
+    }
+
     fn parse_gpt_event(data: &[u8]) -> Result<ParsedEventData, EventParseError> {
         let (header, partitions) = parse_efi_partition_data(data)?;
 
@@ -495,10 +522,16 @@ impl ParsedEventData {
             EventType::CrtmVersion => Ok(Some(ParsedEventData::Text(string_from_widechar(data)?))),
             EventType::EFIVariableDriverConfig
             | EventType::EFIVariableBoot
-            | EventType::EFIVariableAuthority => Ok(Some(ParsedEventData::EfiVariable(
+            | EventType::EFIVariableAuthority
+            | EventType::EFIVariableBoot2
+            | EventType::EFISpdmDevicePolicy
+            | EventType::EFISpdmDeviceAuthority => Ok(Some(ParsedEventData::EfiVariable(
                 EfiVariableData::parse(data)?,
             ))),
-            EventType::PostCode | EventType::IPL | EventType::EFIAction => {
+            EventType::PostCode
+            | EventType::IPL
+            | EventType::EFIAction
+            | EventType::EFIHcrtmEvent => {
                 Ok(Some(ParsedEventData::parse_efi_text(data, settings)?))
             }
             EventType::EFIBootServicesApplication
@@ -509,9 +542,15 @@ impl ParsedEventData {
             EventType::EFIPlatformFirmwareBlob => {
                 Ok(Some(ParsedEventData::parse_efi_firmware_blob(data)?))
             }
-            EventType::EFIGptEvent => Ok(Some(ParsedEventData::parse_gpt_event(data)?)),
+            EventType::EFIPlatformFirmwareBlob2 | EventType::PostCode2 => {
+                Ok(Some(ParsedEventData::parse_efi_firmware_blob2(data)?))
+            }
+            EventType::EFIGptEvent | EventType::EFIGptEvent2 => {
+                Ok(Some(ParsedEventData::parse_gpt_event(data)?))
+            }
 
-            // EFI Event types to do: HandoffTables
+            // EFI Event types to do: HandoffTables, HandoffTables2,
+            // SpdmFirmwareBlob, SpdmFirmwareConfig
             EventType::Separator => {
                 if data == [0, 0, 0, 0] {
                     Ok(Some(ParsedEventData::ValidSeparator(SeparatorType::UEFI)))

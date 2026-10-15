@@ -60,7 +60,8 @@ const EFI_EVENT_BASE: u32 = 0x80000000;
 #[repr(u32)]
 #[allow(clippy::upper_case_acronyms)]
 enum KnownEventType {
-    // TCG PC Client Specific Implementation Specification for Conventional BIOS
+    // TCG PC Client Platform Firmware Profile Version 1.06 revision 52
+    // Table 27 Events
     PrebootCert = 0x0,
     PostCode = 0x1,
     Unused = 0x2,
@@ -80,8 +81,8 @@ enum KnownEventType {
     NonhostConfig = 0x10,
     NonhostInfo = 0x11,
     OmitbootDeviceEvents = 0x12,
+    PostCode2 = 0x13,
 
-    // TCG EFI Platform Specification For TPM Family 1.1 or 1.2, table 7-1
     EFIVariableDriverConfig = EFI_EVENT_BASE + 0x1,
     EFIVariableBoot = EFI_EVENT_BASE + 0x2,
     EFIBootServicesApplication = EFI_EVENT_BASE + 0x3,
@@ -91,14 +92,24 @@ enum KnownEventType {
     EFIAction = EFI_EVENT_BASE + 0x7,
     EFIPlatformFirmwareBlob = EFI_EVENT_BASE + 0x8,
     EFIHandoffTables = EFI_EVENT_BASE + 0x9,
+    EFIPlatformFirmwareBlob2 = EFI_EVENT_BASE + 0xA,
+    EFIHandoffTables2 = EFI_EVENT_BASE + 0xB,
+    EFIVariableBoot2 = EFI_EVENT_BASE + 0xC,
+    EFIGptEvent2 = EFI_EVENT_BASE + 0xD,
+    EFIHcrtmEvent = EFI_EVENT_BASE + 0x10,
     EFIVariableAuthority = EFI_EVENT_BASE + 0xE0,
+    EFISpdmFirmwareBlob = EFI_EVENT_BASE + 0xE1,
+    EFISpdmFirmwareConfig = EFI_EVENT_BASE + 0xE2,
+    EFISpdmDevicePolicy = EFI_EVENT_BASE + 0xE3,
+    EFISpdmDeviceAuthority = EFI_EVENT_BASE + 0xE4,
 }
 
 #[derive(Debug, PartialEq, Copy, Clone, Serialize)]
 #[serde(rename_all = "lowercase")]
 #[non_exhaustive]
 pub enum EventType {
-    // TCG PC Client Specific Implementation Specification for Conventional BIOS
+    // TCG PC Client Platform Firmware Profile Version 1.06 revision 52
+    // Table 27 Events
     PrebootCert,
     PostCode,
     Unused,
@@ -118,8 +129,8 @@ pub enum EventType {
     NonhostConfig,
     NonhostInfo,
     OmitbootDeviceEvents,
+    PostCode2,
 
-    // TCG EFI Platform Specification For TPM Family 1.1 or 1.2, table 7-1
     EFIVariableDriverConfig,
     EFIVariableBoot,
     EFIBootServicesApplication,
@@ -129,7 +140,16 @@ pub enum EventType {
     EFIAction,
     EFIPlatformFirmwareBlob,
     EFIHandoffTables,
+    EFIPlatformFirmwareBlob2,
+    EFIHandoffTables2,
+    EFIVariableBoot2,
+    EFIGptEvent2,
+    EFIHcrtmEvent,
     EFIVariableAuthority,
+    EFISpdmFirmwareBlob,
+    EFISpdmFirmwareConfig,
+    EFISpdmDevicePolicy,
+    EFISpdmDeviceAuthority,
 
     // Others
     Unknown(u32),
@@ -175,6 +195,7 @@ impl EventType {
             EventType::NonhostConfig => KnownEventType::NonhostConfig,
             EventType::NonhostInfo => KnownEventType::NonhostInfo,
             EventType::OmitbootDeviceEvents => KnownEventType::OmitbootDeviceEvents,
+            EventType::PostCode2 => KnownEventType::PostCode2,
             EventType::EFIVariableDriverConfig => KnownEventType::EFIVariableDriverConfig,
             EventType::EFIVariableBoot => KnownEventType::EFIVariableBoot,
             EventType::EFIBootServicesApplication => KnownEventType::EFIBootServicesApplication,
@@ -184,7 +205,16 @@ impl EventType {
             EventType::EFIAction => KnownEventType::EFIAction,
             EventType::EFIPlatformFirmwareBlob => KnownEventType::EFIPlatformFirmwareBlob,
             EventType::EFIHandoffTables => KnownEventType::EFIHandoffTables,
+            EventType::EFIPlatformFirmwareBlob2 => KnownEventType::EFIPlatformFirmwareBlob2,
+            EventType::EFIHandoffTables2 => KnownEventType::EFIHandoffTables2,
+            EventType::EFIVariableBoot2 => KnownEventType::EFIVariableBoot2,
+            EventType::EFIGptEvent2 => KnownEventType::EFIGptEvent2,
+            EventType::EFIHcrtmEvent => KnownEventType::EFIHcrtmEvent,
             EventType::EFIVariableAuthority => KnownEventType::EFIVariableAuthority,
+            EventType::EFISpdmFirmwareBlob => KnownEventType::EFISpdmFirmwareBlob,
+            EventType::EFISpdmFirmwareConfig => KnownEventType::EFISpdmFirmwareConfig,
+            EventType::EFISpdmDevicePolicy => KnownEventType::EFISpdmDevicePolicy,
+            EventType::EFISpdmDeviceAuthority => KnownEventType::EFISpdmDeviceAuthority,
             EventType::Unknown(_) => return None,
         })
     }
@@ -212,6 +242,7 @@ impl From<KnownEventType> for EventType {
             KnownEventType::NonhostConfig => EventType::NonhostConfig,
             KnownEventType::NonhostInfo => EventType::NonhostInfo,
             KnownEventType::OmitbootDeviceEvents => EventType::OmitbootDeviceEvents,
+            KnownEventType::PostCode2 => EventType::PostCode2,
             KnownEventType::EFIVariableDriverConfig => EventType::EFIVariableDriverConfig,
             KnownEventType::EFIVariableBoot => EventType::EFIVariableBoot,
             KnownEventType::EFIBootServicesApplication => EventType::EFIBootServicesApplication,
@@ -221,7 +252,16 @@ impl From<KnownEventType> for EventType {
             KnownEventType::EFIAction => EventType::EFIAction,
             KnownEventType::EFIPlatformFirmwareBlob => EventType::EFIPlatformFirmwareBlob,
             KnownEventType::EFIHandoffTables => EventType::EFIHandoffTables,
+            KnownEventType::EFIPlatformFirmwareBlob2 => EventType::EFIPlatformFirmwareBlob2,
+            KnownEventType::EFIHandoffTables2 => EventType::EFIHandoffTables2,
+            KnownEventType::EFIVariableBoot2 => EventType::EFIVariableBoot2,
+            KnownEventType::EFIGptEvent2 => EventType::EFIGptEvent2,
+            KnownEventType::EFIHcrtmEvent => EventType::EFIHcrtmEvent,
             KnownEventType::EFIVariableAuthority => EventType::EFIVariableAuthority,
+            KnownEventType::EFISpdmFirmwareBlob => EventType::EFISpdmFirmwareBlob,
+            KnownEventType::EFISpdmFirmwareConfig => EventType::EFISpdmFirmwareConfig,
+            KnownEventType::EFISpdmDevicePolicy => EventType::EFISpdmDevicePolicy,
+            KnownEventType::EFISpdmDeviceAuthority => EventType::EFISpdmDeviceAuthority,
         }
     }
 }
@@ -272,12 +312,19 @@ impl Event {
             EventType::NoAction => None,
 
             // These EFI values we are unable to verify as the event doesn't contain all data
-            EventType::EFIPlatformFirmwareBlob => None,
-            EventType::EFIBootServicesApplication => None,
+            EventType::EFIPlatformFirmwareBlob
+            | EventType::EFIPlatformFirmwareBlob2
+            | EventType::EFIBootServicesApplication
+            | EventType::EFIGptEvent2 => None,
 
             // These EFI values we don't verify but TODO
-            EventType::EFIHandoffTables => None,
-            EventType::EFIVariableBoot => None,
+            EventType::EFIHandoffTables
+            | EventType::EFIHandoffTables2
+            | EventType::EFIVariableBoot
+            | EventType::EFISpdmFirmwareBlob
+            | EventType::EFISpdmFirmwareConfig
+            | EventType::EFISpdmDevicePolicy
+            | EventType::EFISpdmDeviceAuthority => None,
 
             // Grub
             EventType::IPL => {
@@ -290,7 +337,7 @@ impl Event {
             }
 
             // For these events, we reconstruct the pcr_event structure
-            EventType::PostCode => None,
+            EventType::PostCode | EventType::PostCode2 => None,
 
             // Everything else, assume it's the full data blob
             _ => Some(&self.data),
