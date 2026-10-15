@@ -1,0 +1,31 @@
+[package]
+name = "uefi-eventlog"
+version = "0.3.1"
+authors = ["Patrick Uiterwijk <patrick@puiterwijk.org>"]
+edition = "2018"
+license = "MIT"
+homepage = "https://github.com/puiterwijk/uefi-eventlog-rs"
+description = "UEFI Event Log parser"
+
+[[bin]]
+name = "uefi-eventlog-dump"
+path = "tool.rs"
+
+[dependencies]
+base64 = "0.13"
+thiserror = "1.0"
+byteorder = "1"
+fallible-iterator = "0.2.0"
+num-traits = "0.2"
+num-derive = "0.3"
+log = "0.4"
+openssl = "0.10"
+pretty_env_logger = "0.4"
+widestring = "0.4"
+serde = { version = "1", features = ["derive"] }
+serde_yaml = "0.8"
+uuid = { version = "0.8", features = ["serde"] }
+tpmless-tpm2 = { version = "0.4.0", features = ["serialize"] }
+
+[dev-dependencies]
+hex = "0.4"
