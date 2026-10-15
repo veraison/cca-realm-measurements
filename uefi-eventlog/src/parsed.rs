@@ -17,10 +17,9 @@ fn string_from_widechar(wchar: &[u8]) -> Result<String, EventParseError> {
         return Err(EventParseError::Unaligned);
     }
     let ustr = widestring::U16Str::from_slice(wchar);
-    Ok(ustr
-        .to_string()
+    ustr.to_string()
         .map(|s| String::from(s.trim_end_matches('\0')))
-        .map_err(|_| EventParseError::TextDecoding)?)
+        .map_err(|_| EventParseError::TextDecoding)
 }
 
 #[derive(Debug, Serialize)]
@@ -431,9 +430,15 @@ impl From<uuid::Error> for EventParseError {
 }
 
 impl ParsedEventData {
-    fn parse_efi_text(mut data: &[u8], settings: &ParseSettings) -> Result<ParsedEventData, EventParseError> {
-        if settings.workaround_string_00af && data[data.len()-2] == 0x00 && data[data.len()-1] == 0xaf {
-            data = &data[..data.len()-1];
+    fn parse_efi_text(
+        mut data: &[u8],
+        settings: &ParseSettings,
+    ) -> Result<ParsedEventData, EventParseError> {
+        if settings.workaround_string_00af
+            && data[data.len() - 2] == 0x00
+            && data[data.len() - 1] == 0xaf
+        {
+            data = &data[..data.len() - 1];
         }
 
         Ok(ParsedEventData::Text(
@@ -494,7 +499,7 @@ impl ParsedEventData {
                 EfiVariableData::parse(data)?,
             ))),
             EventType::PostCode | EventType::IPL | EventType::EFIAction => {
-                Ok(Some(ParsedEventData::parse_efi_text(data, &settings)?))
+                Ok(Some(ParsedEventData::parse_efi_text(data, settings)?))
             }
             EventType::EFIBootServicesApplication
             | EventType::EFIBootServicesDriver
@@ -524,6 +529,7 @@ impl ParsedEventData {
 }
 
 #[derive(Debug)]
+#[allow(dead_code)]
 pub(crate) struct EfiSpecId {
     pub(crate) platform_class: u32,
     pub(crate) spec_version_major: u8,

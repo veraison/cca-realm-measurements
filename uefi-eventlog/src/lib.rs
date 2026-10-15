@@ -58,6 +58,7 @@ enum LogType {
 const EFI_EVENT_BASE: u32 = 0x80000000;
 #[derive(Debug, PartialEq, FromPrimitive, Copy, Clone)]
 #[repr(u32)]
+#[allow(clippy::upper_case_acronyms)]
 enum KnownEventType {
     // TCG PC Client Specific Implementation Specification for Conventional BIOS
     PrebootCert = 0x0,
@@ -153,7 +154,7 @@ impl From<EventType> for u32 {
 }
 
 impl EventType {
-    fn to_known(&self) -> Option<KnownEventType> {
+    fn to_known(self) -> Option<KnownEventType> {
         Some(match self {
             EventType::PrebootCert => KnownEventType::PrebootCert,
             EventType::PostCode => KnownEventType::PostCode,
@@ -297,7 +298,7 @@ impl Event {
 
         if let Some(data_to_confirm) = data_to_confirm {
             for dig in &self.digests {
-                match dig.verify(&data_to_confirm) {
+                match dig.verify(data_to_confirm) {
                     Ok(()) => {}
                     Err(_) => {
                         self.digest_verification_status = DigestVerificationStatus::Invalid;
@@ -324,19 +325,10 @@ impl Event {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct ParseSettings {
     // Workarounds for broken logs
     workaround_string_00af: bool,
-}
-
-impl Default for ParseSettings {
-    fn default() -> ParseSettings {
-        ParseSettings {
-            workaround_string_00af: false,
-
-        }
-    }
 }
 
 impl ParseSettings {
@@ -354,7 +346,6 @@ pub struct Parser<'set, R: Read> {
     reader: R,
     logtype: Option<LogType>,
     log_info: Option<parsed::EfiSpecId>,
-    last_error: Option<Error>,
     pcr_extender: PcrExtender,
     any_invalid: bool,
 
@@ -368,7 +359,6 @@ impl<'set, R: Read> Parser<'set, R> {
             reader,
             logtype: None,
             log_info: None,
-            last_error: None,
             any_invalid: false,
             pcr_extender: PcrExtenderBuilder::new()
                 .add_digest_method(DigestAlgorithm::Sha1)
