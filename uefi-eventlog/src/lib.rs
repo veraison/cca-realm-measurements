@@ -41,11 +41,11 @@ pub enum Error {
     StrUtf8(#[from] std::str::Utf8Error),
 }
 
-fn map_eof(e: std::io::Error) -> Error {
-    if e.kind() == std::io::ErrorKind::UnexpectedEof {
-        Error::Eof
-    } else {
-        Error::Io(e)
+/// Transform an std::io Eof into Error::Eof
+fn map_eof(error: Error) -> Error {
+    match error {
+        Error::Io(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => Error::Eof,
+        _ => error,
     }
 }
 
@@ -413,7 +413,7 @@ fn invert_opt_res<T, E>(input: Result<Option<T>, E>) -> Option<Result<T, E>> {
 impl<R: Read> Parser<'_, R> {
     fn parse_pcr_event(&mut self) -> Result<Event, Error> {
         // PCR Index
-        let pcr_index = self.reader.read_u32::<LittleEndian>().map_err(map_eof)?;
+        let pcr_index = self.reader.read_u32::<LittleEndian>()?;
         // Event Type
         let event_type = self.reader.read_u32::<LittleEndian>()?;
         let event_type = EventType::from(event_type);
@@ -448,7 +448,7 @@ impl<R: Read> Parser<'_, R> {
 
     fn parse_event2(&mut self) -> Result<Event, Error> {
         // PCR Index
-        let pcr_index = self.reader.read_u32::<LittleEndian>().map_err(map_eof)?;
+        let pcr_index = self.reader.read_u32::<LittleEndian>()?;
 
         // Event Type
         let event_type = self.reader.read_u32::<LittleEndian>()?;
@@ -512,7 +512,7 @@ impl<R: Read> FallibleIterator for Parser<'_, R> {
 
     fn next(&mut self) -> Result<Option<Event>, Error> {
         if self.logtype.is_none() {
-            let mut firstevent = match self.parse_pcr_event() {
+            let mut firstevent = match self.parse_pcr_event().map_err(map_eof) {
                 Err(Error::Eof) => return Ok(None),
                 Err(e) => return Err(e),
                 Ok(val) => val,
@@ -546,7 +546,7 @@ impl<R: Read> FallibleIterator for Parser<'_, R> {
             LogType::Event2 => self.parse_event2(),
         };
 
-        match new_event {
+        match new_event.map_err(map_eof) {
             Err(Error::Eof) => Ok(None),
             Err(e) => Err(e),
             Ok(mut val) => {
