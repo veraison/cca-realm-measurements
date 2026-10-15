@@ -10,7 +10,7 @@ license = "MIT OR Apache-2.0"
 
 [workspace.dependencies]
 serde = { version = "1.0.197", features = ["derive"] }
-thiserror = "1.0.64"
+thiserror = "2.0.21"
 
 [package]
 name = "cca-realm-measurements"
