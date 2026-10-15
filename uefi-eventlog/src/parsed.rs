@@ -600,13 +600,16 @@ impl EfiSpecId {
         let uintn_size = data[23];
         let num_algorithms = LittleEndian::read_u32(&data[24..28]);
         let mut algo_sizes = HashMap::new();
+        let offset = 28 + (num_algorithms * 4) as usize;
+        if data.len() < offset {
+            return Err(EventParseError::TooShort);
+        }
         for i in 0..num_algorithms {
             let i = i as usize;
             let algo_id = LittleEndian::read_u16(&data[28 + (i * 4)..28 + (i * 4) + 2]);
             let digest_size = LittleEndian::read_u16(&data[28 + (i * 4) + 2..28 + (i * 4) + 4]);
             algo_sizes.insert(algo_id, digest_size);
         }
-        let offset = 28 + (num_algorithms * 4) as usize;
         let vendor_info_size = data[offset] as usize;
         if data.len() != (offset + vendor_info_size + 1) {
             return Err(EventParseError::TooShort);
