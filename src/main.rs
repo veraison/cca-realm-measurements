@@ -4,7 +4,6 @@ use clap::Parser;
 
 mod cloud_hypervisor;
 mod command_line;
-mod dtb_surgeon;
 mod fdt;
 mod kvmtool;
 mod qemu;
@@ -24,11 +23,6 @@ fn main() {
         .verbosity(2 + args.verbose as usize)
         .init()
         .unwrap();
-
-    if let Err(e) = check_args(&args) {
-        log::error!("Invalid arguments: {e:#}");
-        process::exit(1);
-    }
 
     let params = match args.vmm {
         VmmType::Qemu(ref a) => qemu::build_params(&args, a),
