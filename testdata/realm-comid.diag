@@ -1,0 +1,85 @@
+/ concise-mid-tag / {
+  / comid.tag-identity / 1 : {
+    / comid.tag-id / 0 : h'00000000000000000000000000000000'
+  },
+  / comid.triples / 4 : {
+    / comid.reference-triples / 0 : [
+      [
+        / environment-map / {
+          / comid.class / 0 : {
+            / comid.class-id / 0 :
+              / RIM as tagged-bytes / 560(
+                h'00000000000000000000000000000000
+                  00000000000000000000000000000000'
+              )
+          }
+        },
+        / Realm measurements /
+        [
+          / measurement-map (RIM) / {
+            / comid.mkey / 0 : "cca.rim",
+            / comid.mval / 1 : {
+              / comid.digests / 2 : [[
+                "sha-256",
+                h'00000000000000000000000000000000
+                  00000000000000000000000000000000'
+              ]]
+            }
+          },
+          / measurement-map (REM[0]) / {
+            / comid.mkey / 0 : "cca.rem0",
+            / comid.mval / 1 : {
+              / comid.digests / 2 : [[
+                "sha-256",
+                h'00000000000000000000000000000000
+                  00000000000000000000000000000000'
+              ]]
+            }
+          },
+          / measurement-map (REM[1]) / {
+            / comid.mkey / 0 : "cca.rem1",
+            / comid.mval / 1 : {
+              / comid.digests / 2 : [[
+                "sha-256",
+                h'00000000000000000000000000000000
+                  00000000000000000000000000000000'
+              ]]
+            }
+          },
+          / measurement-map (REM[2]) / {
+            / comid.mkey / 0 : "cca.rem2",
+            / comid.mval / 1 : {
+              / comid.digests / 2 : [[
+                "sha-256",
+                h'00000000000000000000000000000000
+                  00000000000000000000000000000000'
+              ]]
+            }
+          },
+          / measurement-map (REM[3]) / {
+            / comid.mkey / 0 : "cca.rem3",
+
+            / comid.mval / 1 : {
+              / comid.digests / 2 : [[
+                "sha-256",
+                h'00000000000000000000000000000000
+                  00000000000000000000000000000000'
+              ]]
+            }
+          },
+          / measurement-map (RPV) / {
+            / comid.mkey / 0 : "cca.rpv",
+            / comid.mval / 1 : {
+              / comid.raw-value / 4 : 560(
+                h'00000000000000000000000000000000
+                  00000000000000000000000000000000
+                  00000000000000000000000000000000
+                  00000000000000000000000000000000'
+              )
+            }
+          }
+        ]
+      ]
+    ]
+  }
+}

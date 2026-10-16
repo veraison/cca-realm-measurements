@@ -1,0 +1,70 @@
+{
+  "tag-identity": {
+    "tag-id": "00000000-0000-0000-0000-000000000000"
+  },
+  "triples": {
+    "reference-triples": [
+      [
+        {
+          "class": {
+            "class-id": {
+              "type": "bytes",
+              "value": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+            }
+          }
+        },
+        [
+          {
+            "mkey": "cca.rim",
+            "mval": {
+              "digests": [
+                "sha-256;AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+              ]
+            }
+          },
+          {
+            "mkey": "cca.rem0",
+            "mval": {
+              "digests": [
+                "sha-256;AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+              ]
+            }
+          },
+          {
+            "mkey": "cca.rem1",
+            "mval": {
+              "digests": [
+                "sha-256;AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+              ]
+            }
+          },
+          {
+            "mkey": "cca.rem2",
+            "mval": {
+              "digests": [
+                "sha-256;AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+              ]
+            }
+          },
+          {
+            "mkey": "cca.rem3",
+            "mval": {
+              "digests": [
+                "sha-256;AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+              ]
+            }
+          },
+          {
+            "mkey": "cca.rpv",
+            "mval": {
+              "raw-value": {
+                "type": "bytes",
+                "value": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+              }
+            }
+          }
+        ]
+      ]
+    ]
+  }
+}
