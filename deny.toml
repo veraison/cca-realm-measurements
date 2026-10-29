@@ -10,9 +10,6 @@
 [advisories]
 # report unmaintained crates only if they are direct dependencies
 unmaintained = "workspace"
-ignore = [
-    { id = "RUSTSEC-2025-0141", reason = "bincode is unmaintained, direct dependency of cca-rmm until it is replaced" }
-]
 
 [licenses]
 allow = [
