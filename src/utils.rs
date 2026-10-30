@@ -1,6 +1,7 @@
 #![allow(unused)]
 
 use anyhow::Result;
+use base64::{engine::general_purpose::STANDARD as base64_standard, Engine as _};
 
 pub const KIB: u64 = 1024;
 pub const MIB: u64 = 1024 * KIB;
@@ -94,4 +95,8 @@ pub fn buf_to_hex_str(b: &[u8]) -> String {
         .map(|b| format!("{b:02x}"))
         .collect::<Vec<String>>()
         .join("")
+}
+
+pub fn buf_to_base64_str(b: &[u8]) -> String {
+    base64_standard.encode(b)
 }
