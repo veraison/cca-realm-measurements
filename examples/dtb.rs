@@ -1,4 +1,7 @@
-/// Parse a DTB and outtput it, ensuring that input and output are identical
+// Copyright 2026 Contributors to the Veraison project.
+// SPDX-License-Identifier: MIT OR Apache-2.0
+//
+/// Parse a DTB and output it, ensuring that input and output are identical
 use std::process::ExitCode;
 
 use clap::Parser;

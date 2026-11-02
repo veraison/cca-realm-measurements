@@ -1,3 +1,6 @@
+// Copyright 2026 Contributors to the Veraison project.
+// SPDX-License-Identifier: MIT OR Apache-2.0
+//
 /// Initialize Realm parameters for the QEMU virt machine
 //
 // For simplicity we assume that the user input will successfully boot a Realm
