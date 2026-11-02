@@ -1,18 +1,16 @@
 #![allow(non_camel_case_types)]
-use bincode::serialize;
 /// Build a fake event log to perform tests
 use cca_realm_measurements::{EventLogParser, Realm};
-use serde::ser::SerializeTuple;
-use serde::{Serialize, Serializer};
 use uefi_eventlog::EventType;
+use wincode::{serialize, SchemaWrite};
 
-#[derive(Serialize, Debug)]
+#[derive(SchemaWrite, Debug)]
 struct tcg_algo_desc {
     algo_id: u16,
     digest_size: u16,
 }
 
-#[derive(Serialize, Debug)]
+#[derive(SchemaWrite, Debug)]
 struct tcg_pc_client_pcr_event {
     index: u32,
     event_type: u32,
@@ -29,24 +27,23 @@ struct tcg_pc_client_pcr_event {
     vendor_info_size: u8, // 0
 }
 
-#[derive(Serialize)]
+#[derive(SchemaWrite)]
 struct tcg_pcr_event_2_head {
     index: u32,
     event_type: u32,
     digest_count: u32, // 1
 }
 
-#[derive(Serialize)]
+#[derive(SchemaWrite)]
 struct digest_sha256 {
     hash_algo: u16,
     digest: [u8; 32],
 }
 
-#[derive(Serialize)]
+#[derive(SchemaWrite)]
 struct cca_vmm_version {
     signature: [u8; 16],
     name: [u8; 32],
-    #[serde(serialize_with = "serialize_array")]
     version: [u8; 40],
 
     log_start: u64,
@@ -55,7 +52,7 @@ struct cca_vmm_version {
     num_cpus: u32,
 }
 
-#[derive(Serialize)]
+#[derive(SchemaWrite)]
 struct cca_realm_create {
     flags: u64,
     s2sz: u8,
@@ -64,17 +61,6 @@ struct cca_realm_create {
     num_wps: u8,
     pmu_num_ctrs: u8,
     hash_algo: u8,
-}
-
-fn serialize_array<S: Serializer, const N: usize>(
-    t: &[u8; N],
-    serializer: S,
-) -> core::result::Result<S::Ok, S::Error> {
-    let mut ser_tuple = serializer.serialize_tuple(N)?;
-    for e in t {
-        ser_tuple.serialize_element(e)?;
-    }
-    ser_tuple.end()
 }
 
 fn init_str(dst: &mut [u8], src: &str) {
