@@ -1,3 +1,6 @@
+// Copyright 2026 Contributors to the Veraison project.
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 #![allow(non_camel_case_types)]
 use bincode::serialize;
 /// Build a fake event log to perform tests

@@ -1,3 +1,6 @@
+// Copyright 2026 Contributors to the Veraison project.
+// SPDX-License-Identifier: MIT OR Apache-2.0
+//
 //! Compute the Realm Initial and Extensible Measurements for Arm CCA.
 //!
 //! This project provides tools to compute the measurements of a Realm. Two

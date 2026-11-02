@@ -1,4 +1,6 @@
-///
+// Copyright 2026 Contributors to the Veraison project.
+// SPDX-License-Identifier: MIT OR Apache-2.0
+//
 /// Provides tools to compute Realm Measurements, by performing the same
 /// operations as the RMM.
 ///

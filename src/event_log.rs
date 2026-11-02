@@ -1,4 +1,6 @@
-///
+// Copyright 2026 Contributors to the Veraison project.
+// SPDX-License-Identifier: MIT OR Apache-2.0
+//
 /// Parse a TCG event log to reconstruct Arm CCA Realm Measurements
 ///
 use byteorder::{LittleEndian, ReadBytesExt};

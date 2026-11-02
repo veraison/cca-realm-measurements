@@ -1,3 +1,6 @@
+// Copyright 2026 Contributors to the Veraison project.
+// SPDX-License-Identifier: MIT OR Apache-2.0
+//
 // Define a CoMID structure containing the minimum output for Realm
 // endorsements, currently defined here:
 // https://datatracker.ietf.org/doc/html/draft-ydb-rats-cca-endorsements-04

@@ -1,3 +1,6 @@
+// Copyright 2026 Contributors to the Veraison project.
+// SPDX-License-Identifier: MIT OR Apache-2.0
+//
 /// Run the realm-measurements command with various parameters
 use assert_cmd::prelude::*;
 use assert_fs::prelude::*;

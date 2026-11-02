@@ -1,3 +1,6 @@
+// Copyright 2026 Contributors to the Veraison project.
+// SPDX-License-Identifier: MIT OR Apache-2.0
+//
 //! Structures and values defined by the Realm Management Monitor
 //!
 //! This library provides structure and value definitions from the RMM

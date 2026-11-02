@@ -1,3 +1,6 @@
+// Copyright 2026 Contributors to the Veraison project.
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 use flate2::read::GzDecoder;
 use memmap2::Mmap;
 use std::fmt::{self, Debug};
