@@ -198,7 +198,7 @@ dependencies = [
  "serde",
  "serde_json",
  "stderrlog",
- "thiserror 1.0.69",
+ "thiserror 2.0.21",
  "toml",
  "uefi-eventlog",
  "uuid 1.29.0",
@@ -212,7 +212,7 @@ version = "0.1.0"
 dependencies = [
  "bitflags",
  "serde",
- "thiserror 1.0.69",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
