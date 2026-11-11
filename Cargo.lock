@@ -189,7 +189,7 @@ dependencies = [
  "anyhow",
  "assert_cmd",
  "assert_fs",
- "base64 0.23.1",
+ "base64 0.22.1",
  "byteorder",
  "cca-rmm",
  "ciborium",
@@ -330,11 +330,11 @@ checksum = "773648b94d0e5d620f64f280777445740e61fe701025087ec8b57f45c791888b"
 
 [[package]]
 name = "corim-rs"
-version = "0.2.0"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d607c5e5e776ebd44992dda947c4190752039c268c3eb42388e384ee48f8fec7"
+checksum = "4e5417821e1d188c90b49d07d2c206a1c167a76627e5ed157724c618e0681c58"
 dependencies = [
- "base64 0.22.1",
+ "base64 0.23.1",
  "ciborium",
  "coset",
  "derive_more",
@@ -347,9 +347,9 @@ dependencies = [
 
 [[package]]
 name = "coset"
-version = "0.3.8"
+version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f4c8cc80f631f8307b887faca24dcc3abc427cd0367f6eb6188f6e8f5b7ad8fb"
+checksum = "1eb98d5e9155e2cf7cd942c8b3033097d4563b6fb0a00b9caecb74669555c058"
 dependencies = [
  "ciborium",
  "ciborium-io",
