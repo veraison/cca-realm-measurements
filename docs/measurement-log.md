@@ -684,7 +684,7 @@ the RIM log, since both can be useful together.
 
 [CEL]: https://trustedcomputinggroup.org/wp-content/uploads/TCG_IWG_CEL_v1_r0p41_pub.pdf
 
-[CMW]: https://datatracker.ietf.org/doc/html/draft-ietf-rats-msg-wrap/
+[CMW]: https://www.rfc-editor.org/rfc/rfc9999.html
 
 [RATS-CCA-TOKEN]: https://datatracker.ietf.org/doc/html/draft-ffm-rats-cca-token/
 
