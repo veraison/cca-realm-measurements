@@ -136,7 +136,7 @@ independently from the Realm environment.
 
 
 [RATS]: https://datatracker.ietf.org/doc/html/rfc9334
-[EAT]: https://datatracker.ietf.org/doc/html/draft-ietf-rats-eat/
+[EAT]: https://www.rfc-editor.org/rfc/rfc9711.html
 [EAR]: https://datatracker.ietf.org/doc/html/draft-fv-rats-ear/
 
 [CoMID]: https://datatracker.ietf.org/doc/draft-ietf-rats-corim/
